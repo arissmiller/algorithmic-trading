@@ -1,0 +1,17 @@
+{
+  "name": "algorithmic-trader-monorepo",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -n api,frontend -c cyan,magenta \"npm --prefix data-service run dev\" \"npm --prefix frontend run dev\"",
+    "dev:api": "npm --prefix data-service run dev",
+    "dev:frontend": "npm --prefix frontend run dev",
+    "build": "npm --prefix frontend run build",
+    "build:api": "npm --prefix data-service run build",
+    "build:frontend": "npm --prefix frontend run build"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  }
+}
