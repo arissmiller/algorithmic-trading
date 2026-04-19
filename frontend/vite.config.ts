@@ -21,6 +21,10 @@ function getBasePath(): string {
 export default defineConfig({
   base: getBasePath(),
   plugins: [react()],
+  preview: {
+    host: "0.0.0.0",
+    allowedHosts: true,
+  },
   server: {
     port: 1420,
     proxy: {
