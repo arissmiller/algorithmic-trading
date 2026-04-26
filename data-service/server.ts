@@ -1,13 +1,14 @@
 /**
- * Minimal Yahoo Finance proxy.
+ * Minimal Alpaca data proxy.
  * Runs alongside the Vite dev server. Vite proxies /api/* here.
  *
- * Calls Yahoo Finance's public v8 chart API directly — no library needed.
+ * Provides market bars and read-only account snapshots from Alpaca.
  * Start: tsx watch server.ts
  */
 import http from "node:http";
 import { timingSafeEqual } from "node:crypto";
-import { ApiHttpError, fetchYahooBars } from "./core";
+import { ApiHttpError, fetchAlpacaAccountSnapshot, fetchMarketBars } from "./core";
+import { startBot, stopBot, removeBot, getBotList, loadPersistedState, BotConfig } from "./bot";
 
 const PORT = Number(process.env.PORT ?? 3001);
 const ALLOWED_ORIGINS = parseCsvEnv("ALLOWED_ORIGINS");
@@ -36,7 +37,7 @@ const server = http.createServer(async (req, res) => {
     "Access-Control-Allow-Headers",
     `Content-Type, Authorization, ${FRONTEND_SHARED_SECRET_HEADER}`
   );
-  res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
 
   const url = new URL(req.url ?? "/", `http://localhost:${PORT}`);
   const isAuthExemptPath = AUTH_EXEMPT_PATHS.has(url.pathname);
@@ -67,7 +68,13 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  if (req.method !== "GET") {
+  const isBotPath = url.pathname.startsWith("/api/bot/");
+  const isAllowedMethod =
+    req.method === "GET" ||
+    (req.method === "POST" && isBotPath) ||
+    (req.method === "DELETE" && isBotPath);
+
+  if (!isAllowedMethod) {
     res.writeHead(405);
     res.end(JSON.stringify({ error: "Method not allowed" }));
     return;
@@ -79,10 +86,80 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  const symbolFromPath = url.pathname.match(/^\/api\/bars\/([^/]+)$/)?.[1];
-  const symbol = url.searchParams.get("symbol") ?? symbolFromPath;
+  if (isBotPath) {
+    if (!isAuthExemptPath && !hasValidFrontendSharedSecret(req)) {
+      res.writeHead(401);
+      res.end(JSON.stringify({ error: "Unauthorized caller" }));
+      return;
+    }
 
-  if (url.pathname !== "/api/bars" && !symbolFromPath) {
+    // GET /api/bot/list
+    if (url.pathname === "/api/bot/list" && req.method === "GET") {
+      res.writeHead(200);
+      res.end(JSON.stringify(getBotList()));
+      return;
+    }
+
+    // POST /api/bot/start
+    if (url.pathname === "/api/bot/start" && req.method === "POST") {
+      try {
+        const body = await readJsonBody(req);
+        const cfg = body as BotConfig;
+        if (!cfg.symbol || !Array.isArray(cfg.signals) || !cfg.timeframe) {
+          res.writeHead(400);
+          res.end(JSON.stringify({ error: "Invalid bot config: symbol, timeframe, and signals required" }));
+          return;
+        }
+        const id = startBot(cfg);
+        res.writeHead(200);
+        res.end(JSON.stringify({ id }));
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        res.writeHead(400);
+        res.end(JSON.stringify({ error: msg }));
+      }
+      return;
+    }
+
+    // POST /api/bot/stop/:id
+    const stopMatch = url.pathname.match(/^\/api\/bot\/stop\/([^/]+)$/);
+    if (stopMatch && req.method === "POST") {
+      stopBot(stopMatch[1]);
+      res.writeHead(200);
+      res.end(JSON.stringify({ ok: true }));
+      return;
+    }
+
+    // DELETE /api/bot/:id
+    const deleteMatch = url.pathname.match(/^\/api\/bot\/([^/]+)$/);
+    if (deleteMatch && req.method === "DELETE") {
+      removeBot(deleteMatch[1]);
+      res.writeHead(200);
+      res.end(JSON.stringify({ ok: true }));
+      return;
+    }
+
+    res.writeHead(404);
+    res.end(JSON.stringify({ error: "Not found" }));
+    return;
+  }
+
+  const symbolFromPath = url.pathname.match(/^\/api\/bars\/([^/]+)$/)?.[1];
+  const isBarsRequest = url.pathname === "/api/bars" || Boolean(symbolFromPath);
+  const isAlpacaPath = url.pathname.startsWith("/api/alpaca/");
+  const isAlpacaAccountRequest = url.pathname === "/api/alpaca/account";
+
+  if (isAlpacaPath && !isAlpacaAccountRequest) {
+    res.writeHead(403);
+    res.end(
+      JSON.stringify({
+        error: "Trading endpoints are disabled. This service is read-only.",
+      })
+    );
+    return;
+  }
+
+  if (!isBarsRequest && !isAlpacaAccountRequest) {
     res.writeHead(404);
     res.end(JSON.stringify({ error: "Not found" }));
     return;
@@ -102,9 +179,20 @@ const server = http.createServer(async (req, res) => {
   }
 
   try {
-    const payload = await fetchYahooBars({
+    if (isAlpacaAccountRequest) {
+      const payload = await fetchAlpacaAccountSnapshot();
+      res.writeHead(200);
+      res.end(JSON.stringify(payload));
+      return;
+    }
+
+    const symbol = url.searchParams.get("symbol") ?? symbolFromPath;
+    const timeframeParam = url.searchParams.get("timeframe");
+    const timeframe = timeframeParam === "1Hour" ? "1Hour" : "1Day";
+    const payload = await fetchMarketBars({
       symbol: symbol ?? "",
       range: url.searchParams.get("range"),
+      timeframe,
     });
 
     res.writeHead(200);
@@ -122,9 +210,10 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, () =>
-  console.log(`Yahoo Finance proxy → http://localhost:${PORT}`)
-);
+server.listen(PORT, () => {
+  console.log(`Alpaca data proxy → http://localhost:${PORT}`);
+  void loadPersistedState();
+});
 
 function parseCsvEnv(name: string): string[] {
   return (process.env[name] ?? "")
@@ -227,6 +316,22 @@ function getClientIp(req: http.IncomingMessage): string {
     return fwd.split(",")[0]?.trim() || "unknown";
   }
   return req.socket.remoteAddress ?? "unknown";
+}
+
+function readJsonBody(req: http.IncomingMessage): Promise<unknown> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    req.on("data", (chunk: Buffer) => chunks.push(chunk));
+    req.on("end", () => {
+      try {
+        const text = Buffer.concat(chunks).toString("utf8");
+        resolve(JSON.parse(text));
+      } catch {
+        reject(new Error("Invalid JSON body"));
+      }
+    });
+    req.on("error", reject);
+  });
 }
 
 function isRateLimited(ip: string): boolean {

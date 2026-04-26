@@ -4,12 +4,17 @@ const RANGE_MAP: Record<string, string> = {
   "5y": "5y",
   max: "max",
 };
-const YAHOO_CHART_HOSTS = [
-  "query1.finance.yahoo.com",
-  "query2.finance.yahoo.com",
-] as const;
 const ALPACA_DATA_BASE_URL =
   process.env.ALPACA_DATA_BASE_URL ?? "https://data.alpaca.markets/v2";
+const ALPACA_CRYPTO_DATA_BASE_URL = normalizeBaseUrl(
+  process.env.ALPACA_CRYPTO_DATA_BASE_URL ??
+    "https://data.alpaca.markets/v1beta3/crypto/us"
+);
+const ALPACA_TRADING_BASE_URL = normalizeAlpacaTradingBaseUrl(
+  process.env.ALPACA_TRADING_BASE_URL ??
+    process.env.APCA_API_BASE_URL ??
+    "https://paper-api.alpaca.markets/v2"
+);
 const ALPACA_API_KEY_ID = (
   process.env.APCA_API_KEY_ID ?? process.env.ALPACA_API_KEY_ID ?? ""
 ).trim();
@@ -20,15 +25,6 @@ const ALPACA_FEED = (process.env.ALPACA_FEED ?? "iex").trim() || "iex";
 const ALPACA_REQUEST_TIMEOUT_MS = Number(
   process.env.ALPACA_REQUEST_TIMEOUT_MS ?? 10_000
 );
-const YAHOO_REQUEST_TIMEOUT_MS = Number(
-  process.env.YAHOO_REQUEST_TIMEOUT_MS ?? 10_000
-);
-const TWELVEDATA_REQUEST_TIMEOUT_MS = Number(
-  process.env.TWELVEDATA_REQUEST_TIMEOUT_MS ?? 10_000
-);
-const TWELVEDATA_API_KEY = (process.env.TWELVEDATA_API_KEY ?? "demo").trim();
-const TWELVEDATA_BASE_URL =
-  process.env.TWELVEDATA_BASE_URL ?? "https://api.twelvedata.com";
 
 export class ApiHttpError extends Error {
   status: number;
@@ -39,125 +35,121 @@ export class ApiHttpError extends Error {
   }
 }
 
-export async function fetchYahooBars(input: {
+export async function fetchMarketBars(input: {
   symbol: string;
   range: string | null;
+  timeframe?: "1Day" | "1Hour";
 }): Promise<{ symbol: string; bars: ApiBar[] }> {
   const symbol = normalizeSymbol(input.symbol);
   if (!symbol) {
     throw new ApiHttpError(400, "Missing symbol");
   }
 
+  const timeframe = input.timeframe ?? "1Day";
   const range = RANGE_MAP[input.range ?? "2y"] ?? "2y";
-
-  if (hasAlpacaCredentials()) {
-    try {
-      return await fetchFromAlpaca(symbol, range);
-    } catch (err) {
-      if (!shouldFallbackFromAlpaca(err)) {
-        throw err;
-      }
-    }
+  if (!hasAlpacaCredentials()) {
+    throw new ApiHttpError(
+      400,
+      "Missing Alpaca API credentials. Set APCA_API_KEY_ID and APCA_API_SECRET_KEY."
+    );
   }
 
-  try {
-    return await fetchFromYahoo(symbol, range);
-  } catch (err) {
-    if (!shouldFallbackToTwelveData(err)) {
-      throw err;
-    }
-
-    return fetchFromTwelveData(symbol, range);
+  if (isCryptoSymbol(symbol)) {
+    return fetchCryptoFromAlpaca(symbol, range, timeframe);
   }
+
+  return fetchFromAlpaca(symbol, range, timeframe);
 }
 
-async function fetchFromYahoo(
-  symbol: string,
-  range: string
-): Promise<{ symbol: string; bars: ApiBar[] }> {
-  let lastErr: unknown = null;
-  for (const host of YAHOO_CHART_HOSTS) {
-    const yfUrl =
-      `https://${host}/v8/finance/chart/${encodeURIComponent(symbol)}` +
-      `?interval=1d&range=${range}&includeAdjustedClose=true`;
+export async function fetchAlpacaAccountSnapshot(): Promise<AlpacaAccountSnapshot> {
+  if (!hasAlpacaCredentials()) {
+    throw new ApiHttpError(
+      400,
+      "Missing Alpaca API credentials. Set APCA_API_KEY_ID and APCA_API_SECRET_KEY."
+    );
+  }
 
-    try {
-      const yfRes = await fetchWithTimeout(yfUrl, {
+  const [accountResponse, positionsResponse] = await Promise.all([
+    fetchWithTimeout(
+      `${ALPACA_TRADING_BASE_URL}/account`,
+      {
         headers: {
-          "User-Agent":
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
           Accept: "application/json",
-          "Accept-Language": "en-US,en;q=0.9",
+          "APCA-API-KEY-ID": ALPACA_API_KEY_ID,
+          "APCA-API-SECRET-KEY": ALPACA_API_SECRET_KEY,
         },
-      }, YAHOO_REQUEST_TIMEOUT_MS);
+      },
+      ALPACA_REQUEST_TIMEOUT_MS
+    ),
+    fetchWithTimeout(
+      `${ALPACA_TRADING_BASE_URL}/positions`,
+      {
+        headers: {
+          Accept: "application/json",
+          "APCA-API-KEY-ID": ALPACA_API_KEY_ID,
+          "APCA-API-SECRET-KEY": ALPACA_API_SECRET_KEY,
+        },
+      },
+      ALPACA_REQUEST_TIMEOUT_MS
+    ),
+  ]);
 
-      if (!yfRes.ok) {
-        const msg = `Yahoo Finance returned ${yfRes.status}`;
-        const err = new ApiHttpError(502, msg);
-        (err as any).upstreamStatus = yfRes.status;
-        throw err;
-      }
-
-      const json = (await yfRes.json()) as YFChartResponse;
-      const result = json.chart?.result?.[0];
-      if (!result) {
-        const errMsg = json.chart?.error?.description ?? "No data returned";
-        throw new ApiHttpError(404, errMsg);
-      }
-
-      const timestamps = result.timestamp ?? [];
-      const quote = result.indicators.quote[0];
-      const adjClose = result.indicators.adjclose?.[0]?.adjclose ?? [];
-
-      const bars = timestamps
-        .map((ts, i) => ({
-          t: new Date(ts * 1000).toISOString(),
-          o: quote.open[i],
-          h: quote.high[i],
-          l: quote.low[i],
-          c: adjClose[i] ?? quote.close[i],
-          v: quote.volume[i] ?? 0,
-        }))
-        .filter((bar) => bar.o != null && bar.c != null)
-        .map((bar) => ({
-          t: bar.t,
-          o: round(bar.o!),
-          h: round(bar.h!),
-          l: round(bar.l!),
-          c: round(bar.c!),
-          v: bar.v,
-        }));
-
-      return { symbol, bars };
-    } catch (err) {
-      lastErr = err;
-      if (!isRetryableYahooFailure(err)) {
-        throw err;
-      }
-    }
+  if (!accountResponse.ok) {
+    await throwAlpacaTradingError(accountResponse, "account");
+  }
+  if (!positionsResponse.ok) {
+    await throwAlpacaTradingError(positionsResponse, "positions");
   }
 
-  if (lastErr instanceof ApiHttpError) {
-    throw lastErr;
-  }
-  if (lastErr instanceof Error) {
-    throw new ApiHttpError(502, `Yahoo Finance unavailable: ${lastErr.message}`);
-  }
-  throw new ApiHttpError(502, "Yahoo Finance unavailable");
+  const accountPayload = (await accountResponse.json()) as AlpacaAccountResponse;
+  const positionsPayload = (await positionsResponse.json()) as AlpacaPositionResponse[];
+  const positions = Array.isArray(positionsPayload) ? positionsPayload : [];
+
+  return {
+    account: {
+      status: typeof accountPayload.status === "string" ? accountPayload.status : "unknown",
+      equity: numberOrZero(accountPayload.equity),
+      cash: numberOrZero(accountPayload.cash),
+      buyingPower: numberOrZero(accountPayload.buying_power),
+      portfolioValue: numberOrZero(accountPayload.portfolio_value),
+      longMarketValue: numberOrZero(accountPayload.long_market_value),
+      shortMarketValue: numberOrZero(accountPayload.short_market_value),
+    },
+    positions: positions
+      .map((position) => {
+        const side: "short" | "long" = position.side === "short" ? "short" : "long";
+        return {
+          symbol: typeof position.symbol === "string" ? position.symbol : "",
+          qty: numberOrZero(position.qty),
+          side,
+          avgEntryPrice: numberOrZero(position.avg_entry_price),
+          currentPrice: numberOrNull(position.current_price),
+          marketValue: numberOrZero(position.market_value),
+          costBasis: numberOrZero(position.cost_basis),
+          unrealizedPl: numberOrZero(position.unrealized_pl),
+          unrealizedPlpc: numberOrNull(position.unrealized_plpc),
+          changeToday: numberOrNull(position.change_today),
+        };
+      })
+      .filter((position) => position.symbol.length > 0)
+      .sort((a, b) => b.marketValue - a.marketValue),
+    updatedAt: new Date().toISOString(),
+  };
 }
 
 async function fetchFromAlpaca(
   symbol: string,
-  range: string
+  range: string,
+  timeframe: "1Day" | "1Hour" = "1Day"
 ): Promise<{ symbol: string; bars: ApiBar[] }> {
   const requestSymbol = resolveAlpacaSymbol(symbol);
-  const window = getTimeWindow(range);
+  const window = getTimeWindow(range, timeframe);
   let pageToken: string | null = null;
   const allBars: AlpacaBar[] = [];
 
   do {
     const params = new URLSearchParams({
-      timeframe: "1Day",
+      timeframe,
       start: window.start,
       end: window.end,
       adjustment: "all",
@@ -240,55 +232,80 @@ async function fetchFromAlpaca(
   return { symbol, bars };
 }
 
-async function fetchFromTwelveData(
+async function fetchCryptoFromAlpaca(
   symbol: string,
-  range: string
+  range: string,
+  timeframe: "1Day" | "1Hour" = "1Day"
 ): Promise<{ symbol: string; bars: ApiBar[] }> {
-  const requestSymbol = resolveTwelveDataSymbol(symbol);
-  const tdUrl =
-    `${TWELVEDATA_BASE_URL}/time_series?symbol=${encodeURIComponent(requestSymbol)}` +
-    `&interval=1day&outputsize=5000&apikey=${encodeURIComponent(TWELVEDATA_API_KEY)}`;
+  const requestSymbol = normalizeCryptoSymbol(symbol);
+  const window = getTimeWindow(range, timeframe);
+  let pageToken: string | null = null;
+  const allBars: AlpacaBar[] = [];
 
-  const tdRes = await fetchWithTimeout(tdUrl, {
-    headers: {
-      Accept: "application/json",
-    },
-  }, TWELVEDATA_REQUEST_TIMEOUT_MS);
-
-  if (!tdRes.ok) {
-    throw new ApiHttpError(502, `Twelve Data returned ${tdRes.status}`);
-  }
-
-  const json = (await tdRes.json()) as TwelveDataTimeSeriesResponse;
-  if (json.status === "error") {
-    const msg = json.message ?? "Twelve Data error";
-    // Map common auth/plan issues to upstream unavailable for callers.
-    if (json.code === 401 || json.code === 403 || json.code === 429) {
-      throw new ApiHttpError(502, `Twelve Data unavailable: ${msg}`);
+  do {
+    const params = new URLSearchParams({
+      timeframe,
+      symbols: requestSymbol,
+      start: window.start,
+      end: window.end,
+      sort: "asc",
+      limit: "10000",
+    });
+    if (pageToken) {
+      params.set("page_token", pageToken);
     }
-    throw new ApiHttpError(404, msg);
-  }
 
-  if (!Array.isArray(json.values) || json.values.length === 0) {
-    throw new ApiHttpError(404, "No data returned");
-  }
+    const url = `${ALPACA_CRYPTO_DATA_BASE_URL}/bars?${params.toString()}`;
+    const response = await fetchWithTimeout(
+      url,
+      {
+        headers: {
+          Accept: "application/json",
+          "APCA-API-KEY-ID": ALPACA_API_KEY_ID,
+          "APCA-API-SECRET-KEY": ALPACA_API_SECRET_KEY,
+        },
+      },
+      ALPACA_REQUEST_TIMEOUT_MS
+    );
 
-  const cutoff = getCutoffDate(range);
-  const bars = json.values
-    .map((row) => {
-      const iso = new Date(`${row.datetime}T00:00:00Z`).toISOString();
-      return {
-        t: iso,
-        o: Number(row.open),
-        h: Number(row.high),
-        l: Number(row.low),
-        c: Number(row.close),
-        v: Number(row.volume),
-      };
-    })
+    if (!response.ok) {
+      const details = await readErrorText(response);
+      if (response.status === 401 || response.status === 403) {
+        throw new ApiHttpError(
+          502,
+          `Alpaca authentication failed. Check APCA keys. ${details}`.trim()
+        );
+      }
+      if (response.status === 404 || response.status === 422) {
+        throw new ApiHttpError(404, `Symbol not found: ${symbol}`);
+      }
+      if (response.status === 429) {
+        throw new ApiHttpError(502, "Alpaca rate limit reached");
+      }
+      throw new ApiHttpError(
+        502,
+        `Alpaca returned ${response.status}${details ? `: ${details}` : ""}`
+      );
+    }
+
+    const payload = (await response.json()) as AlpacaCryptoBarsResponse;
+    allBars.push(...extractCryptoBars(payload.bars, requestSymbol));
+    pageToken =
+      typeof payload.next_page_token === "string"
+        ? payload.next_page_token
+        : null;
+  } while (pageToken);
+
+  const bars = allBars
+    .map((bar) => ({
+      t: new Date(bar.t).toISOString(),
+      o: Number(bar.o),
+      h: Number(bar.h),
+      l: Number(bar.l),
+      c: Number(bar.c),
+      v: Number(bar.v),
+    }))
     .filter((bar) => Number.isFinite(bar.o) && Number.isFinite(bar.c))
-    .filter((bar) => !cutoff || new Date(bar.t).getTime() >= cutoff.getTime())
-    .sort((a, b) => a.t.localeCompare(b.t))
     .map((bar) => ({
       t: bar.t,
       o: round(bar.o),
@@ -302,15 +319,7 @@ async function fetchFromTwelveData(
     throw new ApiHttpError(404, "No data returned");
   }
 
-  return { symbol, bars };
-}
-
-function resolveTwelveDataSymbol(symbol: string): string {
-  // Twelve Data demo key commonly rejects ^GSPC. SPY is a practical proxy.
-  if (symbol === "^GSPC") {
-    return "SPY";
-  }
-  return symbol;
+  return { symbol: requestSymbol, bars };
 }
 
 function resolveAlpacaSymbol(symbol: string): string {
@@ -321,8 +330,81 @@ function resolveAlpacaSymbol(symbol: string): string {
   return symbol;
 }
 
+function isCryptoSymbol(symbol: string): boolean {
+  if (symbol.includes("/")) {
+    return true;
+  }
+  return /[A-Z0-9]+(USD|USDT|USDC)$/.test(symbol);
+}
+
+function normalizeCryptoSymbol(symbol: string): string {
+  const upper = symbol.trim().toUpperCase().replace(/[-_]/g, "/");
+  const [base, quote, ...rest] = upper.split("/");
+  if (base && quote && rest.length === 0) {
+    return `${base}/${quote}`;
+  }
+
+  const compact = upper.replace(/[^A-Z0-9]/g, "");
+  const quoteCandidates = ["USDT", "USDC", "USD"];
+  for (const quoteSuffix of quoteCandidates) {
+    if (
+      compact.endsWith(quoteSuffix) &&
+      compact.length > quoteSuffix.length
+    ) {
+      return `${compact.slice(0, -quoteSuffix.length)}/${quoteSuffix}`;
+    }
+  }
+  return upper;
+}
+
+function extractCryptoBars(
+  barsBySymbol: unknown,
+  requestSymbol: string
+): AlpacaBar[] {
+  if (Array.isArray(barsBySymbol)) {
+    return barsBySymbol as AlpacaBar[];
+  }
+  if (!barsBySymbol || typeof barsBySymbol !== "object") {
+    return [];
+  }
+
+  const symbolMap = barsBySymbol as Record<string, unknown>;
+  const direct = symbolMap[requestSymbol];
+  if (Array.isArray(direct)) {
+    return direct as AlpacaBar[];
+  }
+
+  const normalizedNoSlash = requestSymbol.replace("/", "");
+  const alt = symbolMap[normalizedNoSlash];
+  if (Array.isArray(alt)) {
+    return alt as AlpacaBar[];
+  }
+
+  for (const value of Object.values(symbolMap)) {
+    if (Array.isArray(value)) {
+      return value as AlpacaBar[];
+    }
+  }
+  return [];
+}
+
 function hasAlpacaCredentials(): boolean {
   return Boolean(ALPACA_API_KEY_ID && ALPACA_API_SECRET_KEY);
+}
+
+function normalizeAlpacaTradingBaseUrl(raw: string): string {
+  const cleaned = raw.trim().replace(/\/+$/, "");
+  if (!cleaned) {
+    return "https://paper-api.alpaca.markets/v2";
+  }
+  if (cleaned.endsWith("/v2")) {
+    return cleaned;
+  }
+  return `${cleaned}/v2`;
+}
+
+function normalizeBaseUrl(raw: string): string {
+  return raw.trim().replace(/\/+$/, "");
 }
 
 async function readErrorText(response: Response): Promise<string> {
@@ -337,16 +419,32 @@ async function readErrorText(response: Response): Promise<string> {
   }
 }
 
-function shouldFallbackFromAlpaca(err: unknown): boolean {
-  if (!(err instanceof ApiHttpError)) {
-    return true;
+async function throwAlpacaTradingError(
+  response: Response,
+  target: "account" | "positions"
+): Promise<never> {
+  const details = await readErrorText(response);
+  if (response.status === 401 || response.status === 403) {
+    throw new ApiHttpError(
+      502,
+      `Alpaca authentication failed for ${target}. Check APCA keys. ${details}`.trim()
+    );
   }
-  return err.status === 429 || err.status >= 500;
+  if (response.status === 429) {
+    throw new ApiHttpError(502, "Alpaca rate limit reached");
+  }
+  throw new ApiHttpError(
+    502,
+    `Alpaca ${target} returned ${response.status}${details ? `: ${details}` : ""}`
+  );
 }
 
-function getTimeWindow(range: string): { start: string; end: string } {
+function getTimeWindow(range: string, timeframe: "1Day" | "1Hour" = "1Day"): { start: string; end: string } {
   const now = new Date();
-  const start = getCutoffDate(range) ?? new Date(Date.UTC(2000, 0, 1));
+  // For hourly bars, 30 days gives ~720 bars — plenty for all signal warmup periods.
+  const start = timeframe === "1Hour"
+    ? new Date(now.getTime() - 365 * 86_400_000)
+    : (getCutoffDate(range) ?? new Date(Date.UTC(2000, 0, 1)));
   return {
     start: start.toISOString(),
     end: now.toISOString(),
@@ -370,21 +468,6 @@ async function fetchWithTimeout(
   }
 }
 
-function shouldFallbackToTwelveData(err: unknown): boolean {
-  if (!(err instanceof ApiHttpError)) {
-    return true;
-  }
-  return err.status >= 500 || err.status === 429;
-}
-
-function isRetryableYahooFailure(err: unknown): boolean {
-  if (!(err instanceof ApiHttpError)) {
-    return true;
-  }
-  const upstreamStatus = Number((err as any).upstreamStatus ?? 0);
-  return [408, 425, 429, 500, 502, 503, 504].includes(upstreamStatus);
-}
-
 function getCutoffDate(range: string): Date | null {
   if (range === "max") {
     return null;
@@ -405,6 +488,16 @@ function round(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
+function numberOrZero(value: unknown): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function numberOrNull(value: unknown): number | null {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 interface ApiBar {
   t: string;
   o: number;
@@ -414,28 +507,39 @@ interface ApiBar {
   v: number | null;
 }
 
-interface YFChartResponse {
-  chart: {
-    result?: Array<{
-      timestamp: number[];
-      indicators: {
-        quote: Array<{
-          open: (number | null)[];
-          high: (number | null)[];
-          low: (number | null)[];
-          close: (number | null)[];
-          volume: (number | null)[];
-        }>;
-        adjclose?: Array<{ adjclose: (number | null)[] }>;
-      };
-    }>;
-    error?: { description: string };
-  };
-}
-
 interface AlpacaBarsResponse {
   bars?: AlpacaBar[];
   next_page_token?: string | null;
+}
+
+interface AlpacaCryptoBarsResponse {
+  bars?: Record<string, AlpacaBar[]> | AlpacaBar[];
+  next_page_token?: string | null;
+}
+
+interface AlpacaAccountSnapshot {
+  account: {
+    status: string;
+    equity: number;
+    cash: number;
+    buyingPower: number;
+    portfolioValue: number;
+    longMarketValue: number;
+    shortMarketValue: number;
+  };
+  positions: Array<{
+    symbol: string;
+    qty: number;
+    side: "long" | "short";
+    avgEntryPrice: number;
+    currentPrice: number | null;
+    marketValue: number;
+    costBasis: number;
+    unrealizedPl: number;
+    unrealizedPlpc: number | null;
+    changeToday: number | null;
+  }>;
+  updatedAt: string;
 }
 
 interface AlpacaBar {
@@ -447,16 +551,27 @@ interface AlpacaBar {
   v: number;
 }
 
-interface TwelveDataTimeSeriesResponse {
-  code?: number;
-  message?: string;
+interface AlpacaAccountResponse {
+  id?: string;
+  account_number?: string;
   status?: string;
-  values?: Array<{
-    datetime: string;
-    open: string;
-    high: string;
-    low: string;
-    close: string;
-    volume: string;
-  }>;
+  equity?: string | number;
+  cash?: string | number;
+  buying_power?: string | number;
+  portfolio_value?: string | number;
+  long_market_value?: string | number;
+  short_market_value?: string | number;
+}
+
+interface AlpacaPositionResponse {
+  symbol?: string;
+  qty?: string | number;
+  side?: string;
+  avg_entry_price?: string | number;
+  current_price?: string | number;
+  market_value?: string | number;
+  cost_basis?: string | number;
+  unrealized_pl?: string | number;
+  unrealized_plpc?: string | number;
+  change_today?: string | number;
 }

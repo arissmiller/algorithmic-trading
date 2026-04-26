@@ -1,5 +1,10 @@
 # Smart Scale Roadmap
 
+Reference notes:
+1. `STRATEGY_BRAINSTORM.md` for strategy planning and phased execution.
+2. `META_STRATEGY.md` for meta-strategy architecture and backtest methodology.
+3. `PORTFOLIO_ALLOCATOR.md` for portfolio-level capital allocation design.
+
 ## Product Direction
 Build a strategy research platform that:
 1. Runs robust walk-forward backtests for smart scale-in and smart scale-out.
@@ -40,6 +45,6 @@ Build a strategy research platform that:
 4. Keep human approval in loop for any proposed actions.
 
 ## Immediate Next Tasks
-1. Implement Phase 1.1 and Phase 1.3 (cost model + walk-forward aggregate stats).
-2. Scaffold Phase 2 data structures in store and domain types.
-3. Add portfolio/capital UI shell with placeholder data wiring.
+1. Implement multi-strategy backtesting comparison (from `STRATEGY_BRAINSTORM.md`).
+2. Implement Phase 1.1 and Phase 1.3 (cost model + walk-forward aggregate stats).
+3. Scaffold Phase 2 data structures in store and domain types.

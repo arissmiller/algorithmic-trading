@@ -15,13 +15,17 @@ import { Bar } from "../lib/signals";
 
 interface Props {
   bars: Bar[];
-  trades: BacktestTrade[];
-  direction: string;
+  scaleInTrades: BacktestTrade[];
+  scaleOutTrades: BacktestTrade[];
 }
 
 const toTime = (t: string) => Math.floor(new Date(t).getTime() / 1000) as Time;
 
-export default function BacktestChart({ bars, trades, direction }: Props) {
+export default function BacktestChart({
+  bars,
+  scaleInTrades,
+  scaleOutTrades,
+}: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
@@ -85,23 +89,40 @@ export default function BacktestChart({ bars, trades, direction }: Props) {
   // Update markers
   useEffect(() => {
     if (!markersRef.current) return;
-    if (trades.length === 0) { markersRef.current.setMarkers([]); return; }
+    if (scaleInTrades.length === 0 && scaleOutTrades.length === 0) {
+      markersRef.current.setMarkers([]);
+      return;
+    }
 
-    const isBuy = direction === "scale_in";
-    const markers = trades
-      .map((t) => ({
-        time: toTime(t.date),
-        position: (isBuy ? "belowBar" : "aboveBar") as SeriesMarker<Time>["position"],
-        color: isBuy ? "#26a69a" : "#ef5350",
-        shape: (isBuy ? "arrowUp" : "arrowDown") as SeriesMarker<Time>["shape"],
-        text: `$${Math.round(t.amountUsd)}`,
-        size: 1 + t.signalScore,
-      }) as SeriesMarker<Time>)
+    const markers = [
+      ...scaleInTrades.map(
+        (t) =>
+          ({
+            time: toTime(t.date),
+            position: "belowBar" as SeriesMarker<Time>["position"],
+            color: "#26a69a",
+            shape: "arrowUp" as SeriesMarker<Time>["shape"],
+            text: `IN $${Math.round(t.amountUsd)}`,
+            size: 1 + t.signalScore,
+          }) as SeriesMarker<Time>
+      ),
+      ...scaleOutTrades.map(
+        (t) =>
+          ({
+            time: toTime(t.date),
+            position: "aboveBar" as SeriesMarker<Time>["position"],
+            color: "#ef5350",
+            shape: "arrowDown" as SeriesMarker<Time>["shape"],
+            text: `OUT $${Math.round(t.amountUsd)}`,
+            size: 1 + t.signalScore,
+          }) as SeriesMarker<Time>
+      ),
+    ]
       .sort((a, b) => (a.time as number) - (b.time as number));
 
     markersRef.current.setMarkers(markers);
     chartRef.current?.timeScale().fitContent();
-  }, [trades, direction]);
+  }, [scaleInTrades, scaleOutTrades]);
 
   return <div ref={containerRef} className="h-full w-full" />;
 }

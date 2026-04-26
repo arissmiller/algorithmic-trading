@@ -18,4 +18,4 @@
 - `GET /api/health`
 - `GET /api/bars?symbol=<ticker>&range=<1y|2y|5y|max>`
 
-The frontend only depends on this contract, not on Yahoo directly.
+The frontend only depends on this contract, not on Alpaca directly.

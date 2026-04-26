@@ -1,4 +1,4 @@
-import { ApiHttpError, fetchMarketBars } from "../core";
+import { ApiHttpError, fetchAlpacaAccountSnapshot } from "../../core";
 
 export default async function handler(req: any, res: any) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -18,18 +18,8 @@ export default async function handler(req: any, res: any) {
     return;
   }
 
-  const symbolParam = firstQueryValue(req.query?.symbol);
-  const rangeParam = firstQueryValue(req.query?.range) ?? null;
-  const timeframeParam = firstQueryValue(req.query?.timeframe);
-  const timeframe = timeframeParam === "1Hour" ? "1Hour" : "1Day";
-
   try {
-    const payload = await fetchMarketBars({
-      symbol: symbolParam ?? "",
-      range: rangeParam,
-      timeframe,
-    });
-
+    const payload = await fetchAlpacaAccountSnapshot();
     res.statusCode = 200;
     res.end(JSON.stringify(payload));
   } catch (err) {
@@ -43,11 +33,4 @@ export default async function handler(req: any, res: any) {
     res.statusCode = 500;
     res.end(JSON.stringify({ error: msg }));
   }
-}
-
-function firstQueryValue(value: unknown): string | null {
-  if (Array.isArray(value)) {
-    return typeof value[0] === "string" ? value[0] : null;
-  }
-  return typeof value === "string" ? value : null;
 }

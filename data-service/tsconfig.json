@@ -9,5 +9,5 @@
     "skipLibCheck": true,
     "types": ["node"]
   },
-  "include": ["server.ts", "core.ts", "api/**/*.ts"]
+  "include": ["server.ts", "core.ts", "bot.ts", "botSignals.ts", "api/**/*.ts"]
 }

@@ -6,13 +6,16 @@ This folder is the backend service boundary for market data.
 
 Expose a stable contract to the frontend while isolating provider details.
 
-- Frontend contract: `/api/health`, `/api/bars?symbol=...&range=...`
-- Provider logic: Alpaca (primary), Yahoo/Twelve Data fallback, normalization, and error mapping
+- Frontend contract:
+	- `/api/health`
+	- `/api/bars?symbol=...&range=...`
+	- `/api/alpaca/account` (read-only snapshot; no trading/order routes exposed)
+- Provider logic: Alpaca-only market data + normalization and error mapping
 
 ## Runtime entrypoints
 
 - Local dev proxy: `server.ts`
-- Serverless (Vercel): `api/health.ts`, `api/bars.ts`
+- Serverless (Vercel): `api/health.ts`, `api/bars.ts`, `api/alpaca/account.ts`
 
 Both entrypoints use `core.ts` so behavior stays consistent.
 
@@ -48,28 +51,23 @@ Before exposing this service publicly, set these Railway environment variables:
 	- Max requests per IP in the window.
 	- Default: `60`
 - `APCA_API_KEY_ID` and `APCA_API_SECRET_KEY`:
-	- Optional but recommended.
-	- When set, Alpaca becomes the primary data provider.
+	- Required for market bars and account snapshots.
+	- If missing, `/api/bars` and `/api/alpaca/account` return a credential error.
 - `ALPACA_FEED`:
 	- Data feed for Alpaca stock bars.
 	- Default: `iex`
 - `ALPACA_DATA_BASE_URL`:
 	- Optional override for Alpaca market data base URL.
 	- Default: `https://data.alpaca.markets/v2`
+- `ALPACA_TRADING_BASE_URL`:
+	- Optional override for Alpaca trading/account base URL.
+	- Used by `/api/alpaca/account`.
+	- Default: `https://paper-api.alpaca.markets/v2`
+- `APCA_API_BASE_URL`:
+	- Optional Alpaca base URL alias for trading/account requests.
+	- If set without `/v2`, the service appends `/v2`.
 - `ALPACA_REQUEST_TIMEOUT_MS`:
 	- Timeout per Alpaca request.
-	- Default: `10000`
-- `TWELVEDATA_API_KEY`:
-	- Optional fallback provider key when Yahoo is unavailable.
-	- Default: `demo` (recommended to replace with your free Twelve Data key for better reliability)
-- `TWELVEDATA_BASE_URL`:
-	- Optional override for Twelve Data API base URL.
-	- Default: `https://api.twelvedata.com`
-- `YAHOO_REQUEST_TIMEOUT_MS`:
-	- Timeout per Yahoo upstream request.
-	- Default: `10000`
-- `TWELVEDATA_REQUEST_TIMEOUT_MS`:
-	- Timeout for Twelve Data fallback request.
 	- Default: `10000`
 
 Notes:
@@ -77,8 +75,8 @@ Notes:
 - CORS controls browser access, not true authentication. Non-browser clients can still call your API directly.
 - Shared-secret auth only stays secret if your frontend calls this API from server-side code.
 - If your frontend is fully static/browser-only, no client-side secret is truly private.
-- Provider order is Alpaca (when APCA keys are set) -> Yahoo -> Twelve Data.
-- For fallback requests, `^GSPC` is mapped to `SPY` when querying Twelve Data.
+- `^GSPC` requests are mapped to `SPY` for Alpaca bars.
+- No account mutation or order placement API is exposed by this service. It is read-only by design.
 
 Example frontend request (server-side runtime):
 

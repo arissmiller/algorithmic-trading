@@ -1,6 +1,19 @@
 import { Direction, generateSchedule, ScheduledTrade } from "./dca";
 import { Bar, SignalWeight } from "./signals";
 
+export type AccountType = "taxable" | "tax_advantaged";
+
+export interface TradeTaxSummary {
+  plannedSellShares: number;
+  executedSellShares: number;
+  avgCostBasis: number;
+  realizedPnL: number;
+  disallowedLoss: number;
+  replacementShares: number;
+  washAdjustedPnL: number;
+  washSaleTriggered: boolean;
+}
+
 export interface BacktestTrade {
   date: string;
   price: number;
@@ -8,6 +21,28 @@ export interface BacktestTrade {
   shares: number;
   signalScore: number;
   rationale: string;
+  side: "buy" | "sell";
+  tax?: TradeTaxSummary;
+}
+
+export interface WashSaleEvent {
+  saleDate: string;
+  lossPerShare: number;
+  lossShares: number;
+  replacementShares: number;
+  disallowedLoss: number;
+}
+
+export interface TaxImpactSummary {
+  accountType: AccountType;
+  washSaleWindowDays: number;
+  washRuleEligibleAsset: boolean;
+  washRuleApplied: boolean;
+  grossRealizedPnL: number;
+  disallowedLossDeferred: number;
+  washAdjustedRealizedPnL: number;
+  washSaleEventCount: number;
+  washSaleEvents: WashSaleEvent[];
 }
 
 export interface AvgPriceComparison {
@@ -68,6 +103,7 @@ export interface StrategyPerformance {
   profitUsd: number;
   profitPct: number;
   returnComparison: ReturnComparison;
+  tax: TaxImpactSummary;
 }
 
 export interface BenchmarkPerformance {
@@ -102,6 +138,9 @@ export interface BacktestConfig {
   signals: SignalWeight[];
   randomEnsembleSamples?: number;
   friction?: ExecutionFrictionConfig;
+  accountType?: AccountType;
+  washSaleWindowDays?: number;
+  applyWashSaleRule?: boolean;
 }
 
 export interface WalkForwardConfig extends BacktestConfig {
@@ -154,6 +193,20 @@ export function runBacktest(cfg: BacktestConfig): BacktestResult | null {
   );
   if (!scaleIn || !scaleOut) return null;
 
+  const tax = computeTaxImpact(scaleIn.trades, scaleOut.trades, scaleIn.totalShares, {
+    accountType: cfg.accountType ?? "taxable",
+    washSaleWindowDays: normalizeWashSaleWindow(cfg.washSaleWindowDays),
+    applyWashSaleRule: cfg.applyWashSaleRule ?? !isLikelyCryptoSymbol(cfg.symbol),
+  });
+
+  const scaleOutWithTax: DirectionalBacktestResult = {
+    ...scaleOut,
+    trades: scaleOut.trades.map((trade, idx) => ({
+      ...trade,
+      tax: tax.tradeTaxByIndex[idx],
+    })),
+  };
+
   const investedAmount = scaleIn.totalAmount;
   const sharesBought = scaleIn.totalShares;
   const proceeds = sharesBought * scaleOut.avgExecutionPrice;
@@ -177,6 +230,7 @@ export function runBacktest(cfg: BacktestConfig): BacktestResult | null {
       scaleIn,
       scaleOut
     ),
+    tax: tax.summary,
   };
 
   const benchmark = computeBenchmarkPerformance(
@@ -190,7 +244,7 @@ export function runBacktest(cfg: BacktestConfig): BacktestResult | null {
   return {
     symbol: cfg.symbol,
     scaleIn,
-    scaleOut,
+    scaleOut: scaleOutWithTax,
     performance,
     benchmark,
   };
@@ -335,6 +389,7 @@ function matchScheduledTrades(
       shares: st.amountUsd / execPrice,
       signalScore: st.signalScore,
       rationale: st.rationale,
+      side: direction === "scale_out" ? "sell" : "buy",
     });
   }
   return trades;
@@ -474,6 +529,246 @@ function buildReturnComparison(
   };
 }
 
+interface TaxConfig {
+  accountType: AccountType;
+  washSaleWindowDays: number;
+  applyWashSaleRule: boolean;
+}
+
+interface TaxComputationResult {
+  summary: TaxImpactSummary;
+  tradeTaxByIndex: Array<TradeTaxSummary | undefined>;
+}
+
+interface BuyLot {
+  date: string;
+  dateTs: number;
+  basisPerShare: number;
+  remaining: number;
+  poolIndex: number;
+}
+
+interface ReplacementPoolEntry {
+  date: string;
+  dateTs: number;
+  availableShares: number;
+}
+
+interface SellExecutionPlan {
+  tradeIndex: number;
+  date: string;
+  dateTs: number;
+  sellPrice: number;
+  plannedShares: number;
+}
+
+function computeTaxImpact(
+  scaleInTrades: BacktestTrade[],
+  scaleOutTrades: BacktestTrade[],
+  sharesBought: number,
+  cfg: TaxConfig
+): TaxComputationResult {
+  const accountType = cfg.accountType;
+  const washSaleWindowDays = normalizeWashSaleWindow(cfg.washSaleWindowDays);
+  const washWindowMs = washSaleWindowDays * DAY_MS;
+  const washRuleEligibleAsset = cfg.applyWashSaleRule;
+  const washRuleApplied = accountType === "taxable" && washRuleEligibleAsset;
+  const tradeTaxByIndex: Array<TradeTaxSummary | undefined> = Array.from({
+    length: scaleOutTrades.length,
+  });
+
+  const zeroSummary: TaxImpactSummary = {
+    accountType,
+    washSaleWindowDays,
+    washRuleEligibleAsset,
+    washRuleApplied,
+    grossRealizedPnL: 0,
+    disallowedLossDeferred: 0,
+    washAdjustedRealizedPnL: 0,
+    washSaleEventCount: 0,
+    washSaleEvents: [],
+  };
+
+  if (scaleInTrades.length === 0 || scaleOutTrades.length === 0 || sharesBought <= 0) {
+    return { summary: zeroSummary, tradeTaxByIndex };
+  }
+
+  const replacementPool: ReplacementPoolEntry[] = scaleInTrades.map((trade) => ({
+    date: trade.date,
+    dateTs: toDateTs(trade.date),
+    availableShares: Math.max(trade.shares, 0),
+  }));
+
+  const lots: BuyLot[] = scaleInTrades
+    .map((trade, idx) => ({
+      date: trade.date,
+      dateTs: toDateTs(trade.date),
+      basisPerShare: Math.max(trade.price, 0),
+      remaining: Math.max(trade.shares, 0),
+      poolIndex: idx,
+    }))
+    .sort((a, b) => a.dateTs - b.dateTs);
+
+  const salePlans: SellExecutionPlan[] = planScaleOutShareExecutions(
+    scaleOutTrades,
+    sharesBought
+  )
+    .map((plannedShares, tradeIndex) => ({
+      tradeIndex,
+      date: scaleOutTrades[tradeIndex].date,
+      dateTs: toDateTs(scaleOutTrades[tradeIndex].date),
+      sellPrice: Math.max(scaleOutTrades[tradeIndex].price, 0),
+      plannedShares,
+    }))
+    .sort((a, b) => {
+      if (a.dateTs === b.dateTs) return a.tradeIndex - b.tradeIndex;
+      return a.dateTs - b.dateTs;
+    });
+
+  const washSaleEvents: WashSaleEvent[] = [];
+  let grossRealizedPnL = 0;
+  let disallowedLossDeferred = 0;
+  let carryForwardShares = 0;
+
+  for (const sale of salePlans) {
+    const effectivePlannedShares = Math.max(sale.plannedShares + carryForwardShares, 0);
+    let sharesToSell = effectivePlannedShares;
+    let executedSellShares = 0;
+    let totalCost = 0;
+
+    while (sharesToSell > 1e-9) {
+      const lot = lots.find((candidate) => candidate.remaining > 1e-9 && candidate.dateTs <= sale.dateTs);
+      if (!lot) break;
+
+      const qty = Math.min(lot.remaining, sharesToSell);
+      lot.remaining -= qty;
+      sharesToSell -= qty;
+      executedSellShares += qty;
+      totalCost += qty * lot.basisPerShare;
+      replacementPool[lot.poolIndex].availableShares = Math.max(
+        0,
+        replacementPool[lot.poolIndex].availableShares - qty
+      );
+    }
+
+    carryForwardShares = Math.max(sharesToSell, 0);
+
+    const realizedPnL =
+      executedSellShares > 0 ? executedSellShares * sale.sellPrice - totalCost : 0;
+    const avgCostBasis = executedSellShares > 0 ? totalCost / executedSellShares : 0;
+
+    let replacementShares = 0;
+    let disallowedLoss = 0;
+    const lossPerShare = Math.max(avgCostBasis - sale.sellPrice, 0);
+
+    if (washRuleApplied && executedSellShares > 0 && lossPerShare > 0) {
+      replacementShares = consumeReplacementShares(
+        replacementPool,
+        sale.dateTs,
+        washWindowMs,
+        executedSellShares
+      );
+      disallowedLoss = replacementShares * lossPerShare;
+
+      if (disallowedLoss > 0) {
+        washSaleEvents.push({
+          saleDate: sale.date,
+          lossPerShare,
+          lossShares: executedSellShares,
+          replacementShares,
+          disallowedLoss,
+        });
+      }
+    }
+
+    grossRealizedPnL += realizedPnL;
+    disallowedLossDeferred += disallowedLoss;
+
+    tradeTaxByIndex[sale.tradeIndex] = {
+      plannedSellShares: effectivePlannedShares,
+      executedSellShares,
+      avgCostBasis,
+      realizedPnL,
+      disallowedLoss,
+      replacementShares,
+      washAdjustedPnL: realizedPnL + disallowedLoss,
+      washSaleTriggered: disallowedLoss > 0,
+    };
+  }
+
+  return {
+    summary: {
+      accountType,
+      washSaleWindowDays,
+      washRuleEligibleAsset,
+      washRuleApplied,
+      grossRealizedPnL,
+      disallowedLossDeferred,
+      washAdjustedRealizedPnL: grossRealizedPnL + disallowedLossDeferred,
+      washSaleEventCount: washSaleEvents.length,
+      washSaleEvents,
+    },
+    tradeTaxByIndex,
+  };
+}
+
+function planScaleOutShareExecutions(
+  scaleOutTrades: BacktestTrade[],
+  totalShares: number
+): number[] {
+  if (scaleOutTrades.length === 0 || totalShares <= 0) return [];
+
+  const weights = scaleOutTrades.map((trade) =>
+    Number.isFinite(trade.amountUsd) && trade.amountUsd > 0 ? trade.amountUsd : 0
+  );
+  let totalWeight = weights.reduce((sum, w) => sum + w, 0);
+
+  if (totalWeight <= 0) {
+    totalWeight = scaleOutTrades.length;
+    for (let i = 0; i < weights.length; i++) weights[i] = 1;
+  }
+
+  let remaining = totalShares;
+  return weights.map((weight, idx) => {
+    if (idx === weights.length - 1) return Math.max(remaining, 0);
+    const planned = (totalShares * weight) / totalWeight;
+    remaining -= planned;
+    return Math.max(planned, 0);
+  });
+}
+
+function consumeReplacementShares(
+  replacementPool: ReplacementPoolEntry[],
+  saleTs: number,
+  washWindowMs: number,
+  maxShares: number
+): number {
+  if (maxShares <= 0 || washWindowMs <= 0) return 0;
+
+  const candidates = replacementPool
+    .map((entry, idx) => ({ ...entry, idx }))
+    .filter(
+      (entry) =>
+        entry.availableShares > 1e-9 &&
+        Math.abs(entry.dateTs - saleTs) <= washWindowMs
+    )
+    .sort((a, b) => {
+      if (a.dateTs === b.dateTs) return a.idx - b.idx;
+      return a.dateTs - b.dateTs;
+    });
+
+  let remaining = maxShares;
+  let used = 0;
+  for (const candidate of candidates) {
+    if (remaining <= 1e-9) break;
+    const take = Math.min(candidate.availableShares, remaining);
+    replacementPool[candidate.idx].availableShares -= take;
+    remaining -= take;
+    used += take;
+  }
+  return used;
+}
+
 function computeReturnSnapshot(
   investedAmount: number,
   avgBuyPrice: number,
@@ -579,6 +874,24 @@ function normalizeIsoDate(value?: string): string | null {
   const [y, m, d] = trimmed.split("-");
   if (!y || !m || !d) return null;
   return `${y.padStart(4, "0")}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`;
+}
+
+function toDateTs(isoDate: string): number {
+  const ts = new Date(isoDate).getTime();
+  if (!Number.isFinite(ts)) return 0;
+  return ts;
+}
+
+function normalizeWashSaleWindow(days?: number): number {
+  if (days == null || !Number.isFinite(days) || Number.isNaN(days)) return 30;
+  return Math.max(1, Math.round(days));
+}
+
+function isLikelyCryptoSymbol(symbol: string): boolean {
+  const normalized = symbol.trim().toUpperCase();
+  if (!normalized) return false;
+  if (normalized.includes("/")) return true;
+  return /^[A-Z0-9]{2,10}[-_](USD|USDT|USDC|BTC|ETH|EUR|GBP|JPY)$/.test(normalized);
 }
 
 function deriveTrancheCount(

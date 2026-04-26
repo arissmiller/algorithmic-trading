@@ -1,6 +1,12 @@
 import { DirectionalBacktestResult } from "../lib/backtest";
 
-export default function BacktestMetrics({ section }: { section: DirectionalBacktestResult }) {
+export default function BacktestMetrics({
+  section,
+  compact = false,
+}: {
+  section: DirectionalBacktestResult;
+  compact?: boolean;
+}) {
   const c = section.comparison;
   const isScaleOut = section.direction === "scale_out";
   const avgLabel = isScaleOut ? "Avg Price" : "Avg Cost";
@@ -10,29 +16,35 @@ export default function BacktestMetrics({ section }: { section: DirectionalBackt
     n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
   return (
-    <div className="grid grid-cols-2 gap-3 p-4 lg:grid-cols-4">
+    <div
+      className={`grid grid-cols-2 ${compact ? "gap-2 p-3" : "gap-3 p-4"} lg:grid-cols-4`}
+    >
       <Card
         label={`Smart Scale ${avgLabel}`}
         value={`$${fmt(c.smartScale)}`}
         sub={`$${fmt(section.totalAmount)} ${amountVerb} across ${section.trades.length} ${tradeNoun}`}
+        compact={compact}
       />
       <Card
         label={`Lump Sum ${avgLabel}`}
         value={`$${fmt(c.lumpSum)}`}
         pos={c.smartVsLumpPct >= 0}
         sub={deltaText(c.smartVsLumpPct, fmt, isScaleOut)}
+        compact={compact}
       />
       <Card
         label={`Random Ensemble ${avgLabel}`}
         value={`$${fmt(c.randomScale)}`}
         pos={c.smartVsRandomPct >= 0}
         sub={deltaText(c.smartVsRandomPct, fmt, isScaleOut)}
+        compact={compact}
       />
       <Card
         label={`Interval Scale ${avgLabel}`}
         value={`$${fmt(c.intervalScale)}`}
         pos={c.smartVsIntervalPct >= 0}
         sub={deltaText(c.smartVsIntervalPct, fmt, isScaleOut)}
+        compact={compact}
       />
     </div>
   );
@@ -56,15 +68,25 @@ function deltaText(
 }
 
 function Card({
-  label, value, sub, pos,
+  label,
+  value,
+  sub,
+  pos,
+  compact = false,
 }: {
-  label: string; value: string; sub?: string; pos?: boolean;
+  label: string;
+  value: string;
+  sub?: string;
+  pos?: boolean;
+  compact?: boolean;
 }) {
   const color = pos === undefined ? "text-text-primary" : pos ? "text-buy" : "text-sell";
   return (
-    <div className="rounded-lg border border-border bg-surface-2 p-3">
+    <div className={`rounded-lg border border-border bg-surface-2 ${compact ? "p-2.5" : "p-3"}`}>
       <p className="text-[11px] text-text-secondary mb-1">{label}</p>
-      <p className={`text-base font-semibold tabular-nums ${color}`}>{value}</p>
+      <p className={`${compact ? "text-sm" : "text-base"} font-semibold tabular-nums ${color}`}>
+        {value}
+      </p>
       {sub && <p className="text-[10px] text-text-secondary mt-0.5">{sub}</p>}
     </div>
   );

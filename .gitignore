@@ -2,3 +2,7 @@ node_modules/
 dist/
 .vercel/
 *.log
+.env
+.env.*
+!.env.example
+data-service/bot-state.json
