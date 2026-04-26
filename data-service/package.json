@@ -8,9 +8,11 @@
     "build": "tsc -p tsconfig.json",
     "start": "node --import tsx server.ts"
   },
+  "dependencies": {
+    "tsx": "^4.20.5"
+  },
   "devDependencies": {
     "@types/node": "^22.18.6",
-    "tsx": "^4.20.5",
     "typescript": "^5.9.2"
   }
 }

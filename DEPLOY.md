@@ -1,67 +1,52 @@
 # Deploy
 
-## GitHub Pages (Frontend)
+## Railway (Frontend + Data Service)
 
-GitHub Pages can host only the static frontend. It cannot run the Node API server.
-
-Use an external API host for:
-
-- `GET /api/health`
-- `GET /api/bars?symbol=AAPL&range=2y`
-
-Then configure the frontend to call that API by setting:
-
-- `VITE_API_BASE_URL=https://your-api-host.example.com`
-
-### 1) Configure repo variable
-
-In GitHub repository settings:
-
-1. Go to Settings -> Secrets and variables -> Actions -> Variables
-2. Add `VITE_API_BASE_URL` with your API host URL
-
-### 2) Enable Pages
-
-In GitHub repository settings:
-
-1. Go to Settings -> Pages
-2. Source: `GitHub Actions`
-
-### 3) Deploy
-
-Push to `main` (or run the workflow manually):
-
-- `.github/workflows/deploy-pages.yml`
-
-The workflow builds `frontend/` and publishes `frontend/dist` to Pages.
-
-## Vercel API Deploy From GitHub
-
-If you want to run deploys from this GitHub repo, use:
-
-- `.github/workflows/deploy-api-vercel.yml`
-
-This deploys your API routes to Vercel on every push to `main`.
-The shared backend logic lives in `data-service/core.ts`.
+Both services are deployed to Railway. The frontend is a static Vite build served via `vite preview`, and the data-service is a long-running Node.js server that hosts the Alpaca proxy and paper trading bots.
 
 ### One-time setup
 
-1. Create a Vercel account with GitHub login.
-2. In Vercel, create/import a project from this repo (one time) with Root Directory set to `data-service`.
-3. In Vercel account settings, create an access token.
-4. In GitHub repository settings -> Secrets and variables -> Actions -> Secrets, add:
-   - `VERCEL_TOKEN`
-   - `VERCEL_ORG_ID`
-   - `VERCEL_PROJECT_ID`
-5. If you are not sure where org/project IDs are, run `vercel pull` locally once.
-   It writes `data-service/.vercel/project.json` with both values.
+1. Create a [Railway](https://railway.app) account and a new project.
+2. Inside the project, create two services:
+   - **frontend** — set the root directory to `frontend/`
+   - **data-service** — set the root directory to `data-service/`
+3. In Railway project settings, generate a **project token** (Settings → Tokens).
+4. In GitHub repository settings → Secrets and variables → Actions → Secrets, add:
+   - `RAILWAY_TOKEN` — the project token from step 3
 
-### Connect Pages frontend to the Vercel API
+### Environment variables
 
-1. Copy your production API host (example: `https://your-project.vercel.app`).
-2. In GitHub repository settings -> Secrets and variables -> Actions -> Variables, set:
-   - `VITE_API_BASE_URL=https://your-project.vercel.app`
-3. Re-run or push to trigger `.github/workflows/deploy-pages.yml`.
+Set these in the Railway dashboard for each service:
+
+**frontend** service:
+| Variable | Value |
+|---|---|
+| `VITE_API_BASE_URL` | URL of your deployed data-service (e.g. `https://data-service.up.railway.app`) |
+
+**data-service** service:
+| Variable | Value |
+|---|---|
+| `APCA_API_KEY_ID` | Alpaca paper trading API key |
+| `APCA_API_SECRET_KEY` | Alpaca paper trading secret |
+| `ALPACA_TRADING_BASE_URL` | `https://paper-api.alpaca.markets/v2` |
+| `ALLOWED_ORIGINS` | URL of your deployed frontend (e.g. `https://frontend.up.railway.app`) |
+| `FRONTEND_SHARED_SECRET` | Shared secret for frontend → data-service auth (optional but recommended) |
+
+### Deploy
+
+Push to `main` — the workflow `.github/workflows/deploy-railway.yml` deploys both services in parallel.
+
+You can also trigger a manual deploy from the Actions tab.
+
+### Service names
+
+The workflow uses `railway up --service frontend` and `railway up --service data-service`. If you named your Railway services differently, update the `--service` flags in `.github/workflows/deploy-railway.yml`.
+
+### Bot state persistence
+
+Railway has an ephemeral filesystem — `bot-state.json` is lost on each redeploy. Running bots will need to be restarted after a deploy. For durable state, consider adding a Railway PostgreSQL or Redis service in the future.
+
+---
 
 ## Local Dev
 
@@ -74,9 +59,3 @@ That runs:
 
 - `data-service` on `http://127.0.0.1:3001`
 - `frontend` on `http://127.0.0.1:1420` (with `/api` proxy to data-service)
-
-## Split Into Two Repos (Optional)
-
-If you want independent frontend/backend repositories, follow:
-
-- `SPLIT_REPOS.md`
