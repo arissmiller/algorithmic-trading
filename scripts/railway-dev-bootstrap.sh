@@ -70,7 +70,7 @@ extract_service_url() {
 read_variable() {
   local service="$1"
   local variable_name="$2"
-  railway variables --service "$service" --environment "$ENV_NAME" 2>/dev/null \
+  railway variable list --service "$service" --environment "$ENV_NAME" --kv 2>/dev/null \
     | sed -n "s/^${variable_name}=//p" \
     | head -n 1
 }

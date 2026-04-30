@@ -47,8 +47,9 @@ const server = http.createServer(async (req, res) => {
   const url = new URL(req.url ?? "/", `http://localhost:${PORT}`);
   const reqOrigin = firstHeaderValue(req.headers.origin);
   const allowedOrigin = resolveAllowedOrigin(reqOrigin);
+  const allowsMissingOrigin = hasAuthenticatedCallerHint(req);
 
-  if (REQUIRE_ORIGIN_HEADER && url.pathname !== "/api/health" && !reqOrigin) {
+  if (REQUIRE_ORIGIN_HEADER && url.pathname !== "/api/health" && !reqOrigin && !allowsMissingOrigin) {
     res.writeHead(403);
     res.end(JSON.stringify({ error: "Missing origin" }));
     return;
@@ -332,6 +333,11 @@ function extractBearerToken(req: http.IncomingMessage): string | null {
 
   const match = authHeader.match(/^Bearer\s+(.+)$/i);
   return match?.[1]?.trim() ?? null;
+}
+
+function hasAuthenticatedCallerHint(req: http.IncomingMessage): boolean {
+  const token = extractBearerToken(req);
+  return typeof token === "string" && token.length > 0;
 }
 
 function getClientIp(req: http.IncomingMessage): string | null {

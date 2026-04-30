@@ -90,8 +90,9 @@ const server = http.createServer(async (req, res) => {
 
   const reqOrigin = firstHeaderValue(req.headers.origin);
   const allowedOrigin = resolveAllowedOrigin(reqOrigin);
+  const allowsMissingOrigin = hasAuthenticatedCallerHint(req);
 
-  if (!isAuthExemptPath && REQUIRE_ORIGIN_HEADER && !reqOrigin) {
+  if (!isAuthExemptPath && REQUIRE_ORIGIN_HEADER && !reqOrigin && !allowsMissingOrigin) {
     res.writeHead(403);
     res.end(JSON.stringify({ error: "Missing origin" }));
     return;
@@ -642,6 +643,15 @@ function hasValidConfiguredFrontendSharedSecret(req: http.IncomingMessage): bool
   return constantTimeEqual(bearerToken, FRONTEND_SHARED_SECRET);
 }
 
+function hasAuthenticatedCallerHint(req: http.IncomingMessage): boolean {
+  if (parseBearerToken(firstHeaderValue(req.headers.authorization))) {
+    return true;
+  }
+
+  const customHeader = firstHeaderValue(req.headers[FRONTEND_SHARED_SECRET_HEADER]);
+  return typeof customHeader === "string" && customHeader.trim().length > 0;
+}
+
 function parseBearerToken(authHeader: string | null): string | null {
   if (!authHeader) {
     return null;
@@ -677,6 +687,18 @@ function resolveAuthApiConfig(): AuthApiConfig {
     };
   }
 
+  const railwayServiceUrl = normalizeRailwayServiceUrl(
+    process.env.RAILWAY_SERVICE_AUTH_SERVICE_URL
+  );
+  if (railwayServiceUrl) {
+    return {
+      prefix: `${railwayServiceUrl}/api`,
+      baseUrl: railwayServiceUrl,
+      mode: "configured",
+      warning: null,
+    };
+  }
+
   if (process.env.NODE_ENV !== "production" && !isRailwayRuntime()) {
     const localBaseUrl = "http://127.0.0.1:3002";
     return {
@@ -695,8 +717,25 @@ function resolveAuthApiConfig(): AuthApiConfig {
     prefix: "",
     baseUrl: null,
     mode: "missing",
-    warning: `${reason} Set it to the auth-service public URL, for example https://auth-service-development-<id>.up.railway.app.`,
+    warning: `${reason} Set it to the auth-service public URL, for example https://auth-service-development-<id>.up.railway.app, or rely on Railway's injected RAILWAY_SERVICE_AUTH_SERVICE_URL.`,
   };
+}
+
+function normalizeRailwayServiceUrl(value: string | undefined): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const normalized = value.trim().replace(/\/+$/, "");
+  if (!normalized) {
+    return null;
+  }
+
+  if (/^https?:\/\//i.test(normalized)) {
+    return normalized;
+  }
+
+  return `https://${normalized}`;
 }
 
 function isRailwayRuntime(): boolean {
