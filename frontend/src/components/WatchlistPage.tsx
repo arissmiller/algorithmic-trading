@@ -1119,12 +1119,24 @@ export default function WatchlistPage({
                                         <div className="border-b border-border/70 px-2 py-1.5 text-[10px] font-semibold uppercase tracking-widest text-text-secondary">
                                           Execution Chart
                                         </div>
-                                        <div className="h-64 min-h-[240px] sm:h-56 sm:min-h-[220px]">
+                                        <div className="relative h-64 min-h-[240px] sm:h-56 sm:min-h-[220px]">
                                           <BacktestChart
                                             bars={run.bars}
                                             scaleInTrades={result.scaleIn.trades}
                                             scaleOutTrades={result.scaleOut.trades}
                                           />
+                                          {form.signals.length > 0 && (
+                                            <div className="pointer-events-none absolute left-2 right-2 top-2 flex flex-wrap gap-1.5">
+                                              {form.signals.map((sw, i) => (
+                                                <span
+                                                  key={`${sw.signal.type}-${i}`}
+                                                  className="rounded border border-border/80 bg-surface-0/80 px-2 py-0.5 text-[10px] text-text-primary backdrop-blur-[1px]"
+                                                >
+                                                  {formatSignalTag(sw)}
+                                                </span>
+                                              ))}
+                                            </div>
+                                          )}
                                         </div>
                                       </div>
 
@@ -1314,6 +1326,19 @@ function BacktestTradesAccordionTable({
       )}
     </section>
   );
+}
+
+function formatSignalTag(sw: SignalWeight): string {
+  const weightPct = Math.round(sw.weight * 100);
+  const base = SIGNAL_META[sw.signal.type]?.label ?? sw.signal.type;
+  const period = "period" in sw.signal ? sw.signal.period : null;
+  if (sw.signal.type === "bollinger_band") {
+    return `${base} (${weightPct}%, p${period}, ${sw.signal.std_dev}sd)`;
+  }
+  if (period != null) {
+    return `${base} (${weightPct}%, p${period})`;
+  }
+  return `${base} (${weightPct}%)`;
 }
 
 function formatTime(value: string | null): string {
