@@ -20,6 +20,7 @@ Expose a stable contract to the frontend while isolating provider details.
 - Bot execution engine: `bot.ts`
 - Multi-user watchlist signal engine: `watchlistExecution.ts`
 - Dispatch integration layer: `signalDispatch.ts`
+- Optional bars cache adapter: `barCache.ts` (PostgreSQL)
 
 All entrypoints use `core.ts` for market/account behavior consistency.
 
@@ -46,7 +47,7 @@ Watchlist endpoint auth behavior:
 
 - Frontend on GitHub Pages stays static
 - Backend can evolve without touching frontend call sites
-- Easier to add caching/rate-limit handling later
+- Includes optional PostgreSQL bar-cache support for faster repeated backtests
 
 ## Railway hardening checklist
 
@@ -100,6 +101,19 @@ Before exposing this service publicly, set these Railway environment variables:
 - `ALPACA_REQUEST_TIMEOUT_MS`:
 	- Timeout per Alpaca request.
 	- Default: `10000`
+- `BACKTEST_CACHE_DATABASE_URL`:
+	- Optional PostgreSQL connection string for persistent Alpaca bar caching used by `/api/bars`.
+	- Recommended: point this at a second Railway Postgres instance dedicated to market-data cache.
+	- If unset, bar caching is disabled and requests go directly to Alpaca.
+- `BACKTEST_CACHE_TABLE`:
+	- Optional table name for bar cache records.
+	- Default: `backtest_bars_cache`
+- `BAR_CACHE_TTL_1_DAY_MS`:
+	- Optional cache TTL for daily (`1Day`) bars.
+	- Default: `21600000` (6 hours)
+- `BAR_CACHE_TTL_1_HOUR_MS`:
+	- Optional cache TTL for hourly (`1Hour`) bars.
+	- Default: `1800000` (30 minutes)
 - `SIGNAL_DISPATCH_URL`:
 	- Optional HTTP endpoint to receive generated watchlist signals.
 	- Example: `https://dispatch-service.up.railway.app/api/dispatch/signal`

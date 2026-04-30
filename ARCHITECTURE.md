@@ -17,6 +17,7 @@
 - Bot runtime: `data-service/bot.ts`
 - Multi-user watchlist signal execution: `data-service/watchlistExecution.ts`
 - Dispatch client abstraction: `data-service/signalDispatch.ts`
+- Optional persistence: PostgreSQL (`BACKTEST_CACHE_DATABASE_URL`) for Alpaca bars cache used by backtesting
 
 ## Auth Service
 

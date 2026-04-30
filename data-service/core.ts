@@ -1,3 +1,5 @@
+import { getCachedBars, upsertCachedBars } from "./barCache";
+
 const RANGE_MAP: Record<string, string> = {
   "1y": "1y",
   "2y": "2y",
@@ -47,6 +49,20 @@ export async function fetchMarketBars(input: {
 
   const timeframe = input.timeframe ?? "1Day";
   const range = RANGE_MAP[input.range ?? "2y"] ?? "2y";
+  const cacheSymbol = isCryptoSymbol(symbol) ? normalizeCryptoSymbol(symbol) : symbol;
+
+  const cached = await getCachedBars({
+    symbol: cacheSymbol,
+    range,
+    timeframe,
+  });
+  if (cached) {
+    return {
+      symbol: cached.symbol,
+      bars: cached.bars,
+    };
+  }
+
   if (!hasAlpacaCredentials()) {
     throw new ApiHttpError(
       400,
@@ -54,11 +70,18 @@ export async function fetchMarketBars(input: {
     );
   }
 
-  if (isCryptoSymbol(symbol)) {
-    return fetchCryptoFromAlpaca(symbol, range, timeframe);
-  }
+  const fresh = isCryptoSymbol(symbol)
+    ? await fetchCryptoFromAlpaca(symbol, range, timeframe)
+    : await fetchFromAlpaca(symbol, range, timeframe);
 
-  return fetchFromAlpaca(symbol, range, timeframe);
+  await upsertCachedBars({
+    symbol: fresh.symbol,
+    range,
+    timeframe,
+    bars: fresh.bars,
+  });
+
+  return fresh;
 }
 
 export async function fetchAlpacaAccountSnapshot(

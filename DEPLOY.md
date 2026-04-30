@@ -146,6 +146,10 @@ Set these in Railway for each service.
 | `SIGNAL_DISPATCH_AUTH_TOKEN` | Optional dispatch auth token value |
 | `SIGNAL_DISPATCH_TIMEOUT_MS` | Optional dispatch timeout in ms (default `5000`) |
 | `WATCHLIST_SIGNAL_HISTORY_LIMIT` | Optional in-memory signal history size (default `500`) |
+| `BACKTEST_CACHE_DATABASE_URL` | Optional PostgreSQL connection string for `/api/bars` cache (recommended: second Railway Postgres) |
+| `BACKTEST_CACHE_TABLE` | Optional cache table name (default `backtest_bars_cache`) |
+| `BAR_CACHE_TTL_1_DAY_MS` | Optional daily-bars cache TTL in ms (default `21600000`) |
+| `BAR_CACHE_TTL_1_HOUR_MS` | Optional hourly-bars cache TTL in ms (default `1800000`) |
 
 **auth-service** service:
 
@@ -180,6 +184,17 @@ Set these in Railway for each service.
 | `DISPATCH_SMTP_REPLY_TO` | Optional reply-to address for dispatch emails |
 | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` | Twilio account credentials for SMS dispatch |
 | `TWILIO_FROM_PHONE_E164` | Twilio sender phone number (E.164) |
+
+### Add Dedicated Railway Postgres For Bars Cache
+
+1. In Railway, create a second Postgres service in the same project (separate from auth-service DB).
+2. In that Postgres service, copy its `DATABASE_URL` reference.
+3. In `data-service` variables, set:
+   - `BACKTEST_CACHE_DATABASE_URL=${{PostgresService.DATABASE_URL}}` (or paste the full URL)
+   - Optional: `BACKTEST_CACHE_TABLE`, `BAR_CACHE_TTL_1_DAY_MS`, `BAR_CACHE_TTL_1_HOUR_MS`
+4. Redeploy `data-service` (`npm run railway:deploy:dev:data` or production workflow).
+
+The cache table is created automatically on first request to `/api/bars`.
 
 ### Deploy
 
