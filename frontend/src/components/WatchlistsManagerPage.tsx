@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { formatAuthDependencyError } from "../lib/authErrors";
 import type { AuthUser } from "./AuthGate";
 import WatchlistPage from "./WatchlistPage";
 import type { StrategyPresetKey } from "./StrategyBuilder";
@@ -93,7 +94,11 @@ export default function WatchlistsManagerPage({ authUser }: { authUser: AuthUser
       setMonitor(body.monitor ?? null);
       setError(null);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load watchlists.");
+      setError(
+        e instanceof Error
+          ? formatAuthDependencyError(e.message)
+          : "Failed to load watchlists."
+      );
     } finally {
       setLoading(false);
     }
@@ -146,7 +151,9 @@ export default function WatchlistsManagerPage({ authUser }: { authUser: AuthUser
       }
       setWatchlists((prev) => prev.filter((w) => w.userId !== watchlistId));
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Delete failed.");
+      setError(
+        e instanceof Error ? formatAuthDependencyError(e.message) : "Delete failed."
+      );
     } finally {
       setDeletingId(null);
     }

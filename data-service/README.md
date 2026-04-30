@@ -64,7 +64,8 @@ Before exposing this service publicly, set these Railway environment variables:
 - `AUTH_API_BASE_URL`:
 	- Base URL for the auth service used to validate bearer sessions for watchlist routes.
 	- Example: `https://auth-service.up.railway.app`
-	- In non-production, defaults to `http://127.0.0.1:3002` when unset.
+	- In pure local non-Railway development, defaults to `http://127.0.0.1:3002` when unset.
+	- When running with Railway environment variables, this must be set explicitly to the auth-service public URL.
 - `AUTH_API_TIMEOUT_MS`:
 	- Timeout in milliseconds for auth session validation calls.
 	- Default: `5000`

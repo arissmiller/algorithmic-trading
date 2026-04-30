@@ -18,6 +18,8 @@ What this does:
 - Verifies Railway CLI auth and project link
 - Creates `development` by duplicating `production` (if needed)
 - Links your local directory to `development`
+- Checks that `frontend`, `data-service`, `auth-service`, and `dispatch-service` exist in `development`
+- Warns when auth-routing variables are missing for Railway-backed local dev
 
 ### Daily development flow
 
@@ -25,6 +27,13 @@ What this does:
 2. `npm run dev:railway`
 
 `npm run dev:railway` runs frontend + data-service + auth-service locally via Railway environment variables. Run `npm run dev:dispatch:railway` in a separate terminal when testing dispatch-service locally.
+
+For Railway-backed local dev, set both auth URL variables explicitly:
+
+- `AUTH_API_BASE_URL` on `data-service` to the public auth-service URL
+- `VITE_AUTH_API_BASE_URL` on `frontend` to the public auth-service URL
+
+The localhost auth fallback only applies to pure local dev, not `railway run` development.
 
 ### Deploy to the dev environment
 
@@ -66,6 +75,22 @@ If frontend auth/register calls return `HTTP 500`:
 2. Ensure frontend points at that public auth URL:
    - `railway variable set --service frontend --environment development VITE_AUTH_API_BASE_URL=https://<your-auth-domain>`
 3. Redeploy frontend:
+   - `npm run railway:deploy:dev:frontend`
+
+If watchlist or market-data connection pages show `Auth service is unavailable` or `Auth service is not configured`:
+
+1. Confirm the auth-service URL exists in dev:
+   - `railway service list --environment development`
+2. Set data-service auth validation to that URL:
+   - `railway variable set --service data-service --environment development AUTH_API_BASE_URL=https://<your-auth-domain>`
+3. Set frontend auth calls to that same URL:
+   - `railway variable set --service frontend --environment development VITE_AUTH_API_BASE_URL=https://<your-auth-domain>`
+4. Recommended: allow the frontend origin on both APIs:
+   - `railway variable set --service data-service --environment development ALLOWED_ORIGINS=https://<your-frontend-domain>`
+   - `railway variable set --service auth-service --environment development ALLOWED_ORIGINS=https://<your-frontend-domain>`
+5. Redeploy or restart the affected services:
+   - `npm run railway:deploy:dev:data`
+   - `npm run railway:deploy:dev:auth`
    - `npm run railway:deploy:dev:frontend`
 
 ---

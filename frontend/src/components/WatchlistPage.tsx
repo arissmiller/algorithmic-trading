@@ -1,5 +1,6 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { AccountType, BacktestResult, BacktestTrade, runBacktest } from "../lib/backtest";
+import { formatAuthDependencyError } from "../lib/authErrors";
 import { Bar, SIGNAL_META, SignalWeight } from "../lib/signals";
 import BacktestChart from "./BacktestChart";
 import { STRATEGY_PRESETS, StrategyPresetKey } from "./StrategyBuilder";
@@ -243,7 +244,7 @@ export default function WatchlistPage({
         setError(null);
       } catch (e) {
         const msg = e instanceof Error ? e.message : "Unable to load watchlist state.";
-        setError(msg);
+        setError(formatAuthDependencyError(msg));
       } finally {
         setLoading(false);
         setRefreshing(false);
@@ -346,7 +347,7 @@ export default function WatchlistPage({
       await loadData({ silent: true });
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Save failed.";
-      setError(msg);
+      setError(formatAuthDependencyError(msg));
     } finally {
       setSaving(false);
     }
@@ -512,7 +513,7 @@ export default function WatchlistPage({
       await loadData({ silent: true });
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Scan failed.";
-      setError(msg);
+      setError(formatAuthDependencyError(msg));
     } finally {
       setScanning(false);
     }
@@ -544,7 +545,7 @@ export default function WatchlistPage({
       await loadData({ silent: true });
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Delete failed.";
-      setError(msg);
+      setError(formatAuthDependencyError(msg));
     } finally {
       setSaving(false);
     }

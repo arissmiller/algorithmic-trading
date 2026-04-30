@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { formatAuthDependencyError } from "../lib/authErrors";
 import type { AuthUser } from "./AuthGate";
 
 interface DispatchEmailProfile {
@@ -215,7 +216,11 @@ export default function AccountPage({
       if (!res.ok) throw new Error(body.error ?? `HTTP ${res.status}`);
       setApiConn(body.connection ?? null);
     } catch (err) {
-      setApiConnError(err instanceof Error ? err.message : "Failed to load API connection");
+      setApiConnError(
+        err instanceof Error
+          ? formatAuthDependencyError(err.message)
+          : "Failed to load API connection"
+      );
     } finally {
       setApiConnLoading(false);
     }
@@ -241,7 +246,11 @@ export default function AccountPage({
       setApiConn(body.connection ?? null);
       setApiConnEditing(false);
     } catch (err) {
-      setApiConnError(err instanceof Error ? err.message : "Failed to save API connection");
+      setApiConnError(
+        err instanceof Error
+          ? formatAuthDependencyError(err.message)
+          : "Failed to save API connection"
+      );
     } finally {
       setApiConnSaving(false);
     }
@@ -266,7 +275,11 @@ export default function AccountPage({
       setApiConnEditing(false);
       setApiConnForm({ alpacaKeyId: "", alpacaSecretKey: "", paper: true });
     } catch (err) {
-      setApiConnError(err instanceof Error ? err.message : "Failed to remove API connection");
+      setApiConnError(
+        err instanceof Error
+          ? formatAuthDependencyError(err.message)
+          : "Failed to remove API connection"
+      );
     } finally {
       setApiConnRemoving(false);
     }
@@ -298,7 +311,11 @@ export default function AccountPage({
         `Connected — status: ${acct?.status ?? "?"}, equity: $${(acct?.equity ?? 0).toLocaleString()}`
       );
     } catch (err) {
-      setApiConnError(err instanceof Error ? err.message : "Connection test failed");
+      setApiConnError(
+        err instanceof Error
+          ? formatAuthDependencyError(err.message)
+          : "Connection test failed"
+      );
     } finally {
       setApiConnTesting(false);
     }

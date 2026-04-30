@@ -36,7 +36,8 @@ const FRONTEND_SHARED_SECRET = (process.env.FRONTEND_SHARED_SECRET ?? "").trim()
 const FRONTEND_SHARED_SECRET_HEADER = (
   process.env.FRONTEND_SHARED_SECRET_HEADER ?? "x-frontend-secret"
 ).toLowerCase();
-const AUTH_API_PREFIX = resolveAuthApiPrefix();
+const AUTH_API = resolveAuthApiConfig();
+const AUTH_API_PREFIX = AUTH_API.prefix;
 const AUTH_API_TIMEOUT_MS = parsePositiveIntEnv("AUTH_API_TIMEOUT_MS", 5_000);
 const AUTH_EXEMPT_PATHS = parseAuthExemptPaths();
 const REQUIRE_ORIGIN_HEADER = parseBooleanEnv(
@@ -62,6 +63,15 @@ type WatchlistAccessResolution =
 type AuthUserLookupResult =
   | { ok: true; userId: string }
   | { ok: false; status: number; error: string };
+
+type AuthApiMode = "configured" | "local-fallback" | "missing";
+
+type AuthApiConfig = {
+  prefix: string;
+  baseUrl: string | null;
+  mode: AuthApiMode;
+  warning: string | null;
+};
 
 const rateLimitBuckets = new Map<string, RateLimitBucket>();
 
@@ -119,7 +129,17 @@ const server = http.createServer(async (req, res) => {
 
   if (url.pathname === "/api/health") {
     res.writeHead(200);
-    res.end(JSON.stringify({ ok: true }));
+    res.end(
+      JSON.stringify({
+        ok: true,
+        auth: {
+          configured: AUTH_API.mode !== "missing",
+          mode: AUTH_API.mode,
+          baseUrl: AUTH_API.baseUrl,
+          timeoutMs: AUTH_API_TIMEOUT_MS,
+        },
+      })
+    );
     return;
   }
 
@@ -517,9 +537,11 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(PORT, () => {
   console.log(`Alpaca data proxy → http://localhost:${PORT}`);
-  if (!AUTH_API_PREFIX) {
-    console.warn(
-      "[auth] AUTH_API_BASE_URL not configured; bearer-token watchlist access is disabled."
+  if (AUTH_API.warning) {
+    console.warn(`[auth] ${AUTH_API.warning}`);
+  } else if (AUTH_API.baseUrl) {
+    console.log(
+      `[auth] Bearer-token watchlist and API connection auth enabled via ${AUTH_API.baseUrl}`
     );
   }
   void loadPersistedState();
@@ -644,17 +666,51 @@ function constantTimeEqual(a: string | null, b: string): boolean {
   return timingSafeEqual(aBuffer, bBuffer);
 }
 
-function resolveAuthApiPrefix(): string {
+function resolveAuthApiConfig(): AuthApiConfig {
   const configured = (process.env.AUTH_API_BASE_URL ?? "").trim().replace(/\/+$/, "");
   if (configured.length > 0) {
-    return `${configured}/api`;
+    return {
+      prefix: `${configured}/api`,
+      baseUrl: configured,
+      mode: "configured",
+      warning: null,
+    };
   }
 
-  if (process.env.NODE_ENV !== "production") {
-    return "http://127.0.0.1:3002/api";
+  if (process.env.NODE_ENV !== "production" && !isRailwayRuntime()) {
+    const localBaseUrl = "http://127.0.0.1:3002";
+    return {
+      prefix: `${localBaseUrl}/api`,
+      baseUrl: localBaseUrl,
+      mode: "local-fallback",
+      warning: null,
+    };
   }
 
-  return "";
+  const reason = isRailwayRuntime()
+    ? "AUTH_API_BASE_URL is required when data-service runs with Railway environment variables."
+    : "AUTH_API_BASE_URL is required in production.";
+
+  return {
+    prefix: "",
+    baseUrl: null,
+    mode: "missing",
+    warning: `${reason} Set it to the auth-service public URL, for example https://auth-service-development-<id>.up.railway.app.`,
+  };
+}
+
+function isRailwayRuntime(): boolean {
+  return [
+    "RAILWAY_ENVIRONMENT",
+    "RAILWAY_ENVIRONMENT_NAME",
+    "RAILWAY_PROJECT_ID",
+    "RAILWAY_SERVICE_ID",
+    "RAILWAY_PUBLIC_DOMAIN",
+    "RAILWAY_STATIC_URL",
+  ].some((name) => {
+    const value = process.env[name];
+    return typeof value === "string" && value.trim().length > 0;
+  });
 }
 
 function isApiConnectionPath(pathname: string): boolean {
@@ -702,7 +758,9 @@ async function fetchAuthUserId(bearerToken: string): Promise<AuthUserLookupResul
     return {
       ok: false,
       status: 503,
-      error: "Auth service is not configured",
+      error:
+        AUTH_API.warning ??
+        "Auth service is not configured. Set AUTH_API_BASE_URL to the auth-service public URL.",
     };
   }
 
@@ -734,7 +792,9 @@ async function fetchAuthUserId(bearerToken: string): Promise<AuthUserLookupResul
       return {
         ok: false,
         status: 503,
-        error: payload.error ?? `Auth service request failed (${response.status})`,
+        error:
+          payload.error ??
+          `Auth service request failed (${response.status}). Check AUTH_API_BASE_URL and auth-service health.`,
       };
     }
 
@@ -751,12 +811,16 @@ async function fetchAuthUserId(bearerToken: string): Promise<AuthUserLookupResul
   } catch (err) {
     const errorName = err instanceof Error ? err.name : "";
     const isAbort = errorName === "AbortError";
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    console.warn(
+      `[auth] Failed to reach auth service${AUTH_API.baseUrl ? ` at ${AUTH_API.baseUrl}` : ""}: ${errorMessage}`
+    );
     return {
       ok: false,
       status: 503,
       error: isAbort
-        ? "Auth service request timed out"
-        : "Auth service is unavailable",
+        ? "Auth service request timed out. Check AUTH_API_BASE_URL and auth-service health."
+        : "Auth service is unavailable. Check AUTH_API_BASE_URL and auth-service health.",
     };
   } finally {
     clearTimeout(timeoutId);
