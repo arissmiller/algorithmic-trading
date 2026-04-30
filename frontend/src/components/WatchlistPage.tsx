@@ -176,6 +176,28 @@ export default function WatchlistPage({
     [backtestRuns]
   );
 
+  const currentSignalsBySymbol = useMemo(() => {
+    const map = new Map<string, WatchlistSignalEvent>();
+    for (const signal of filteredSignals) {
+      const existing = map.get(signal.symbol);
+      if (!existing || signal.generatedAt > existing.generatedAt) {
+        map.set(signal.symbol, signal);
+      }
+    }
+    return map;
+  }, [filteredSignals]);
+
+  const scaleOutDateError = useMemo(() => {
+    if (
+      backtestForm.scaleOutStartDate &&
+      backtestForm.startDate &&
+      backtestForm.scaleOutStartDate <= backtestForm.startDate
+    ) {
+      return "Scale-out start date must be after the backtest start date.";
+    }
+    return null;
+  }, [backtestForm.scaleOutStartDate, backtestForm.startDate]);
+
   const loadData = useCallback(
     async (options: { silent: boolean }) => {
       if (options.silent) {
@@ -378,6 +400,14 @@ export default function WatchlistPage({
       }
       if (backtestForm.scaleInWindowDays <= 0 || backtestForm.scaleOutWindowDays <= 0) {
         throw new Error("Scale-in and scale-out windows must be at least 1 day.");
+      }
+      if (
+        backtestForm.scaleOutStartDate &&
+        backtestForm.scaleOutStartDate <= backtestForm.startDate
+      ) {
+        throw new Error(
+          "Scale-out start date must be after the backtest start date. Use 'Sync Scale-Out Start' to auto-fill."
+        );
       }
 
       const benchmarkSymbol = assetClass === "crypto" ? "BTC/USD" : "^GSPC";
@@ -813,7 +843,7 @@ export default function WatchlistPage({
                       <label className={fieldLabelClass}>Scale-Out Start Date</label>
                       <input
                         type="date"
-                        className={inputClass}
+                        className={`${inputClass} ${scaleOutDateError ? "border-sell/60" : ""}`}
                         value={backtestForm.scaleOutStartDate}
                         onChange={(event) =>
                           setBacktestForm((current) => ({
@@ -822,6 +852,9 @@ export default function WatchlistPage({
                           }))
                         }
                       />
+                      {scaleOutDateError ? (
+                        <p className="mt-0.5 text-[10px] text-sell">{scaleOutDateError}</p>
+                      ) : null}
                     </div>
                   </div>
 
@@ -1183,13 +1216,72 @@ export default function WatchlistPage({
 
       <section className="rounded border border-border bg-surface-1">
         <div className="border-b border-border px-4 py-2 text-[11px] font-semibold uppercase tracking-widest text-text-secondary">
-          Recent Signals ({filteredSignals.length})
+          Current Signal Values ({watchlistSymbols.length} symbol{watchlistSymbols.length === 1 ? "" : "s"})
+        </div>
+        {loading ? (
+          <div className="p-4 text-xs text-text-secondary">Loading signal data...</div>
+        ) : watchlistSymbols.length === 0 ? (
+          <div className="p-4 text-xs text-text-secondary">
+            No symbols configured. Add symbols to the watchlist above.
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead className="text-[10px] uppercase tracking-wide text-text-secondary">
+                <tr>
+                  <th className="px-4 py-2 text-left font-medium">Symbol</th>
+                  <th className="px-4 py-2 text-left font-medium">Action</th>
+                  <th className="px-4 py-2 text-right font-medium">Score</th>
+                  <th className="px-4 py-2 text-left font-medium">Bar Time</th>
+                  <th className="px-4 py-2 text-left font-medium">Signal Breakdown</th>
+                </tr>
+              </thead>
+              <tbody>
+                {watchlistSymbols.map((symbol) => {
+                  const latest = currentSignalsBySymbol.get(symbol);
+                  return (
+                    <tr key={symbol} className="border-t border-border">
+                      <td className="px-4 py-2 text-text-primary">{symbol}</td>
+                      {latest ? (
+                        <>
+                          <td
+                            className={`px-4 py-2 font-semibold uppercase tracking-wide ${
+                              latest.action === "buy" ? "text-buy" : "text-sell"
+                            }`}
+                          >
+                            {latest.action}
+                          </td>
+                          <td className="px-4 py-2 text-right tabular-nums text-text-primary">
+                            {latest.signalScore.toFixed(4)}
+                          </td>
+                          <td className="px-4 py-2 text-text-secondary">
+                            {new Date(latest.barTime).toLocaleString()}
+                          </td>
+                          <td className="px-4 py-2 text-text-secondary">{latest.rationale}</td>
+                        </>
+                      ) : (
+                        <td colSpan={4} className="px-4 py-2 text-text-secondary">
+                          No signal data yet — run a scan to populate.
+                        </td>
+                      )}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      <section className="rounded border border-border bg-surface-1">
+        <div className="border-b border-border px-4 py-2 text-[11px] font-semibold uppercase tracking-widest text-text-secondary">
+          Trade Record ({filteredSignals.length})
         </div>
         {loading ? (
           <div className="p-4 text-xs text-text-secondary">Loading watchlist activity...</div>
         ) : filteredSignals.length === 0 ? (
           <div className="p-4 text-xs text-text-secondary">
-            No recent signals for this page yet. Save the watchlist and run a scan.
+            No trade records for this watchlist yet. Save the watchlist and run a scan.
           </div>
         ) : (
           <div className="overflow-x-auto">
