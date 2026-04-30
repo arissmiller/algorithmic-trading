@@ -43,7 +43,7 @@ export default function TradeTable({
           {trades.map((t, i) => (
             <tr key={t.date + i} className="border-b border-border/40 hover:bg-surface-2">
               <td className={`${rowPadding} text-text-secondary`}>{i + 1}</td>
-              <td className={`${rowPadding} font-mono text-text-primary`}>{t.date}</td>
+              <td className={`${rowPadding} font-mono text-text-primary`}>{t.date.split("T")[0]}</td>
               <td className={`${rowPadding} text-right tabular-nums text-text-primary`}>
                 ${t.amountUsd.toFixed(2)}
               </td>
