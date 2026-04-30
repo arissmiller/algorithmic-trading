@@ -1,3 +1,5 @@
+import { getBarsCache, BarsCache } from "./barsCache";
+
 const RANGE_MAP: Record<string, string> = {
   "1y": "1y",
   "2y": "2y",
@@ -25,6 +27,8 @@ const ALPACA_FEED = (process.env.ALPACA_FEED ?? "iex").trim() || "iex";
 const ALPACA_REQUEST_TIMEOUT_MS = Number(
   process.env.ALPACA_REQUEST_TIMEOUT_MS ?? 10_000
 );
+
+const barsCache: BarsCache = getBarsCache();
 
 export class ApiHttpError extends Error {
   status: number;
@@ -54,11 +58,18 @@ export async function fetchMarketBars(input: {
     );
   }
 
-  if (isCryptoSymbol(symbol)) {
-    return fetchCryptoFromAlpaca(symbol, range, timeframe);
+  const cached = barsCache.get(symbol, timeframe, range);
+  if (cached) {
+    return { symbol, bars: cached };
   }
 
-  return fetchFromAlpaca(symbol, range, timeframe);
+  const result = isCryptoSymbol(symbol)
+    ? await fetchCryptoFromAlpaca(symbol, range, timeframe)
+    : await fetchFromAlpaca(symbol, range, timeframe);
+
+  barsCache.set(result.symbol, timeframe, range, result.bars);
+
+  return result;
 }
 
 export async function fetchAlpacaAccountSnapshot(

@@ -146,6 +146,8 @@ Set these in Railway for each service.
 | `SIGNAL_DISPATCH_AUTH_TOKEN` | Optional dispatch auth token value |
 | `SIGNAL_DISPATCH_TIMEOUT_MS` | Optional dispatch timeout in ms (default `5000`) |
 | `WATCHLIST_SIGNAL_HISTORY_LIMIT` | Optional in-memory signal history size (default `500`) |
+| `BARS_CACHE_FILE` | Optional path for the bars cache SQLite file (default: `bars-cache.db` next to the server binary). Lost on redeploy — see persistence notes. |
+| `BARS_CACHE_TTL_MS` | Optional bars cache TTL in ms (default `86400000` = 24 h). Set to `0` or omit to use default. |
 
 **auth-service** service:
 
@@ -227,6 +229,7 @@ Railway has an ephemeral filesystem:
 
 - `data-service/bot-state.json` is lost on redeploy.
 - `data-service/watchlist-state.json` is lost on redeploy.
+- `data-service/bars-cache.db` is lost on redeploy (cache is rebuilt automatically on next request).
 - `dispatch-service/dispatch-state.json` is lost on redeploy.
 
 For production durability, move bot/auth/dispatch state to persistent storage (for example PostgreSQL) and optionally use Redis for cache/session layers.
