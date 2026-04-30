@@ -12,6 +12,7 @@
   "include": [
     "server.ts",
     "core.ts",
+    "barsCache.ts",
     "bot.ts",
     "botSignals.ts",
     "watchlistExecution.ts",
