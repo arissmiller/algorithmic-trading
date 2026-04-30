@@ -9,13 +9,35 @@ import http from "node:http";
 import { timingSafeEqual } from "node:crypto";
 import { ApiHttpError, fetchAlpacaAccountSnapshot, fetchMarketBars } from "./core";
 import { startBot, stopBot, removeBot, getBotList, loadPersistedState, BotConfig } from "./bot";
+import {
+  getRecentWatchlistSignals,
+  getPublicWatchlistUsers,
+  getUserWatchlists,
+  getWatchlistMonitorStatus,
+  loadPersistedWatchlists,
+  removeUserWatchlist,
+  replaceAllUserWatchlists,
+  runWatchlistScanNow,
+  runWatchlistScanNowForUser,
+  startWatchlistExecution,
+  UserWatchlist,
+  WatchlistSignalEvent,
+  upsertUserWatchlist,
+  UserWatchlistInput,
+} from "./watchlistExecution";
+import { UserApiConnectionStore, UserApiConnectionInput } from "./userApiConnections";
 
 const PORT = Number(process.env.PORT ?? 3001);
+const API_CONNECTION_STATE_FILE =
+  process.env.API_CONNECTION_STATE_FILE ??
+  new URL("./api-connections.json", import.meta.url).pathname;
 const ALLOWED_ORIGINS = parseCsvEnv("ALLOWED_ORIGINS");
 const FRONTEND_SHARED_SECRET = (process.env.FRONTEND_SHARED_SECRET ?? "").trim();
 const FRONTEND_SHARED_SECRET_HEADER = (
   process.env.FRONTEND_SHARED_SECRET_HEADER ?? "x-frontend-secret"
 ).toLowerCase();
+const AUTH_API_PREFIX = resolveAuthApiPrefix();
+const AUTH_API_TIMEOUT_MS = parsePositiveIntEnv("AUTH_API_TIMEOUT_MS", 5_000);
 const AUTH_EXEMPT_PATHS = parseAuthExemptPaths();
 const REQUIRE_ORIGIN_HEADER = parseBooleanEnv(
   "REQUIRE_ORIGIN_HEADER",
@@ -29,7 +51,21 @@ type RateLimitBucket = {
   resetAtMs: number;
 };
 
+type WatchlistAccessContext =
+  | { mode: "admin"; authUserId: null }
+  | { mode: "user"; authUserId: string };
+
+type WatchlistAccessResolution =
+  | { ok: true; access: WatchlistAccessContext }
+  | { ok: false; status: number; error: string };
+
+type AuthUserLookupResult =
+  | { ok: true; userId: string }
+  | { ok: false; status: number; error: string };
+
 const rateLimitBuckets = new Map<string, RateLimitBucket>();
+
+const apiConnectionStore = new UserApiConnectionStore(API_CONNECTION_STATE_FILE);
 
 const server = http.createServer(async (req, res) => {
   res.setHeader("Content-Type", "application/json");
@@ -37,7 +73,7 @@ const server = http.createServer(async (req, res) => {
     "Access-Control-Allow-Headers",
     `Content-Type, Authorization, ${FRONTEND_SHARED_SECRET_HEADER}`
   );
-  res.setHeader("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
 
   const url = new URL(req.url ?? "/", `http://localhost:${PORT}`);
   const isAuthExemptPath = AUTH_EXEMPT_PATHS.has(url.pathname);
@@ -72,6 +108,7 @@ const server = http.createServer(async (req, res) => {
   const isAllowedMethod =
     req.method === "GET" ||
     (req.method === "POST" && isBotPath) ||
+    (req.method === "PUT" && isBotPath) ||
     (req.method === "DELETE" && isBotPath);
 
   if (!isAllowedMethod) {
@@ -87,10 +124,33 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (isBotPath) {
-    if (!isAuthExemptPath && !hasValidFrontendSharedSecret(req)) {
-      res.writeHead(401);
-      res.end(JSON.stringify({ error: "Unauthorized caller" }));
-      return;
+    const isWatchlistRoute = isWatchlistApiPath(url.pathname);
+    const isApiConnRoute = isApiConnectionPath(url.pathname);
+    let watchlistAccess: WatchlistAccessContext = { mode: "admin", authUserId: null };
+    let apiConnUserId: string | null = null;
+
+    if (!isAuthExemptPath) {
+      if (isWatchlistRoute) {
+        const resolution = await resolveWatchlistAccess(req);
+        if (!resolution.ok) {
+          res.writeHead(resolution.status);
+          res.end(JSON.stringify({ error: resolution.error }));
+          return;
+        }
+        watchlistAccess = resolution.access;
+      } else if (isApiConnRoute) {
+        const lookup = await resolveUserBearerAuth(req);
+        if (!lookup.ok) {
+          res.writeHead(lookup.status);
+          res.end(JSON.stringify({ error: lookup.error }));
+          return;
+        }
+        apiConnUserId = lookup.userId;
+      } else if (!hasValidFrontendSharedSecret(req)) {
+        res.writeHead(401);
+        res.end(JSON.stringify({ error: "Unauthorized caller" }));
+        return;
+      }
     }
 
     // GET /api/bot/list
@@ -121,6 +181,182 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    // GET /api/bot/watchlists
+    if (url.pathname === "/api/bot/watchlists" && req.method === "GET") {
+      const allWatchlists = getUserWatchlists();
+      const watchlists =
+        watchlistAccess.mode === "admin"
+          ? allWatchlists
+          : filterWatchlistsForUser(allWatchlists, watchlistAccess.authUserId);
+
+      const baseMonitor = getWatchlistMonitorStatus();
+      const monitor =
+        watchlistAccess.mode === "admin"
+          ? baseMonitor
+          : {
+              ...baseMonitor,
+              watchlistCount: watchlists.length,
+              watchedSymbolCount: countWatchedSymbolsForWatchlists(watchlists),
+              signalCount: filterSignalsForUser(
+                getRecentWatchlistSignals(1_000),
+                watchlistAccess.authUserId
+              ).length,
+            };
+
+      res.writeHead(200);
+      res.end(
+        JSON.stringify({
+          watchlists,
+          monitor,
+        })
+      );
+      return;
+    }
+
+    // PUT /api/bot/watchlists
+    if (url.pathname === "/api/bot/watchlists" && req.method === "PUT") {
+      if (watchlistAccess.mode !== "admin") {
+        res.writeHead(403);
+        res.end(JSON.stringify({ error: "Only admin callers can bulk replace watchlists" }));
+        return;
+      }
+
+      try {
+        const body = await readJsonBody(req);
+        const payload = body as { watchlists?: UserWatchlistInput[] };
+        const watchlists = replaceAllUserWatchlists(payload.watchlists ?? []);
+        res.writeHead(200);
+        res.end(JSON.stringify({ watchlists }));
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        res.writeHead(400);
+        res.end(JSON.stringify({ error: msg }));
+      }
+      return;
+    }
+
+    // PUT /api/bot/watchlists/:userId
+    const watchlistUpsertMatch = url.pathname.match(/^\/api\/bot\/watchlists\/([^/]+)$/);
+    if (watchlistUpsertMatch && req.method === "PUT") {
+      const routeUserId = decodeURIComponent(watchlistUpsertMatch[1]);
+      if (
+        watchlistAccess.mode === "user" &&
+        !isWatchlistOwnedByUser(routeUserId, watchlistAccess.authUserId)
+      ) {
+        res.writeHead(403);
+        res.end(JSON.stringify({ error: "Cannot modify another user's watchlist" }));
+        return;
+      }
+
+      try {
+        const body = await readJsonBody(req);
+        const payload = body as Omit<UserWatchlistInput, "userId">;
+        const watchlist = upsertUserWatchlist({
+          userId: routeUserId,
+          name: typeof payload.name === "string" ? payload.name : undefined,
+          displayName: typeof payload.displayName === "string" ? payload.displayName : undefined,
+          assetClass:
+            payload.assetClass === "stocks_etf" || payload.assetClass === "crypto"
+              ? payload.assetClass
+              : undefined,
+          symbols: Array.isArray(payload.symbols) ? payload.symbols : undefined,
+          enabled: payload.enabled,
+          config: payload.config,
+        });
+        res.writeHead(200);
+        res.end(JSON.stringify({ watchlist }));
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        res.writeHead(400);
+        res.end(JSON.stringify({ error: msg }));
+      }
+      return;
+    }
+
+    // DELETE /api/bot/watchlists/:userId
+    const watchlistDeleteMatch = url.pathname.match(/^\/api\/bot\/watchlists\/([^/]+)$/);
+    if (watchlistDeleteMatch && req.method === "DELETE") {
+      const routeUserId = decodeURIComponent(watchlistDeleteMatch[1]);
+      if (
+        watchlistAccess.mode === "user" &&
+        !isWatchlistOwnedByUser(routeUserId, watchlistAccess.authUserId)
+      ) {
+        res.writeHead(403);
+        res.end(JSON.stringify({ error: "Cannot delete another user's watchlist" }));
+        return;
+      }
+
+      const removed = removeUserWatchlist(routeUserId);
+      res.writeHead(removed ? 200 : 404);
+      res.end(JSON.stringify({ ok: removed }));
+      return;
+    }
+
+    // POST /api/bot/watchlists/scan
+    if (url.pathname === "/api/bot/watchlists/scan" && req.method === "POST") {
+      try {
+        const timeframeParam = url.searchParams.get("timeframe");
+        const timeframe =
+          timeframeParam === "1Hour" || timeframeParam === "1Day"
+            ? timeframeParam
+            : undefined;
+
+        if (watchlistAccess.mode === "admin") {
+          await runWatchlistScanNow(timeframe);
+        } else {
+          await runWatchlistScanNowForUser(watchlistAccess.authUserId, timeframe);
+        }
+
+        const baseMonitor = getWatchlistMonitorStatus();
+        const monitor =
+          watchlistAccess.mode === "admin"
+            ? baseMonitor
+            : {
+                ...baseMonitor,
+                watchlistCount: filterWatchlistsForUser(
+                  getUserWatchlists(),
+                  watchlistAccess.authUserId
+                ).length,
+                watchedSymbolCount: countWatchedSymbolsForWatchlists(
+                  filterWatchlistsForUser(getUserWatchlists(), watchlistAccess.authUserId)
+                ),
+                signalCount: filterSignalsForUser(
+                  getRecentWatchlistSignals(1_000),
+                  watchlistAccess.authUserId
+                ).length,
+              };
+
+        res.writeHead(200);
+        res.end(
+          JSON.stringify({
+            ok: true,
+            monitor,
+          })
+        );
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        res.writeHead(500);
+        res.end(JSON.stringify({ error: msg }));
+      }
+      return;
+    }
+
+    // GET /api/bot/watchlist-signals?limit=100
+    if (url.pathname === "/api/bot/watchlist-signals" && req.method === "GET") {
+      const limit = Number(url.searchParams.get("limit") ?? "100");
+      const safeLimit = normalizeSignalLimit(limit);
+      const signals =
+        watchlistAccess.mode === "admin"
+          ? getRecentWatchlistSignals(safeLimit)
+          : filterSignalsForUser(
+              getRecentWatchlistSignals(1_000),
+              watchlistAccess.authUserId
+            ).slice(0, safeLimit);
+      res.writeHead(200);
+      res.end(JSON.stringify({ signals }));
+      return;
+    }
+
     // POST /api/bot/stop/:id
     const stopMatch = url.pathname.match(/^\/api\/bot\/stop\/([^/]+)$/);
     if (stopMatch && req.method === "POST") {
@@ -139,8 +375,68 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    // GET /api/bot/api-connection
+    if (isApiConnRoute && url.pathname === "/api/bot/api-connection" && req.method === "GET") {
+      const connection = apiConnectionStore.get(apiConnUserId!);
+      res.writeHead(200);
+      res.end(JSON.stringify({ connection }));
+      return;
+    }
+
+    // PUT /api/bot/api-connection
+    if (isApiConnRoute && url.pathname === "/api/bot/api-connection" && req.method === "PUT") {
+      const body = (await readJsonBody(req)) as UserApiConnectionInput;
+      const connection = apiConnectionStore.upsert(apiConnUserId!, body);
+      res.writeHead(200);
+      res.end(JSON.stringify({ connection }));
+      return;
+    }
+
+    // DELETE /api/bot/api-connection
+    if (isApiConnRoute && url.pathname === "/api/bot/api-connection" && req.method === "DELETE") {
+      const removed = apiConnectionStore.remove(apiConnUserId!);
+      res.writeHead(removed ? 200 : 404);
+      res.end(JSON.stringify({ ok: removed }));
+      return;
+    }
+
+    // POST /api/bot/api-connection/test
+    if (isApiConnRoute && url.pathname === "/api/bot/api-connection/test" && req.method === "POST") {
+      const body = (await readJsonBody(req)) as {
+        alpacaKeyId?: string;
+        alpacaSecretKey?: string;
+        paper?: boolean;
+      };
+      let creds: { keyId: string; secretKey: string; paper: boolean };
+      const bodyKeyId = (body.alpacaKeyId ?? "").trim();
+      const bodySecretKey = (body.alpacaSecretKey ?? "").trim();
+      if (bodyKeyId && bodySecretKey) {
+        creds = { keyId: bodyKeyId, secretKey: bodySecretKey, paper: body.paper !== false };
+      } else {
+        const stored = apiConnectionStore.getSecret(apiConnUserId!);
+        if (!stored) {
+          res.writeHead(400);
+          res.end(JSON.stringify({ error: "No credentials provided or stored" }));
+          return;
+        }
+        creds = stored;
+      }
+      const snapshot = await fetchAlpacaAccountSnapshot(creds);
+      res.writeHead(200);
+      res.end(JSON.stringify({ ok: true, account: snapshot.account }));
+      return;
+    }
+
     res.writeHead(404);
     res.end(JSON.stringify({ error: "Not found" }));
+    return;
+  }
+
+  // GET /api/community/watchlists — public, no auth required
+  if (url.pathname === "/api/community/watchlists" && req.method === "GET") {
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.writeHead(200);
+    res.end(JSON.stringify({ users: getPublicWatchlistUsers() }));
     return;
   }
 
@@ -180,7 +476,16 @@ const server = http.createServer(async (req, res) => {
 
   try {
     if (isAlpacaAccountRequest) {
-      const payload = await fetchAlpacaAccountSnapshot();
+      let userCredentials: { keyId: string; secretKey: string; paper: boolean } | undefined;
+      const bearerToken = parseBearerToken(firstHeaderValue(req.headers.authorization));
+      if (bearerToken) {
+        const lookup = await fetchAuthUserId(bearerToken);
+        if (lookup.ok) {
+          const stored = apiConnectionStore.getSecret(lookup.userId);
+          if (stored) userCredentials = stored;
+        }
+      }
+      const payload = await fetchAlpacaAccountSnapshot(userCredentials);
       res.writeHead(200);
       res.end(JSON.stringify(payload));
       return;
@@ -212,8 +517,20 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(PORT, () => {
   console.log(`Alpaca data proxy → http://localhost:${PORT}`);
+  if (!AUTH_API_PREFIX) {
+    console.warn(
+      "[auth] AUTH_API_BASE_URL not configured; bearer-token watchlist access is disabled."
+    );
+  }
   void loadPersistedState();
+  void initializeWatchlistExecution();
+  void apiConnectionStore.load();
 });
+
+async function initializeWatchlistExecution(): Promise<void> {
+  await loadPersistedWatchlists();
+  startWatchlistExecution();
+}
 
 function parseCsvEnv(name: string): string[] {
   return (process.env[name] ?? "")
@@ -247,6 +564,15 @@ function parseBooleanEnv(name: string, fallback: boolean): boolean {
   return fallback;
 }
 
+function parsePositiveIntEnv(name: string, fallback: number): number {
+  const raw = process.env[name];
+  const parsed = Number(raw ?? fallback);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return fallback;
+  }
+  return Math.round(parsed);
+}
+
 function firstHeaderValue(value: string | string[] | undefined): string | null {
   if (typeof value === "string") {
     return value;
@@ -272,6 +598,14 @@ function resolveAllowedOrigin(origin: string | null): string | null {
 function hasValidFrontendSharedSecret(req: http.IncomingMessage): boolean {
   if (!FRONTEND_SHARED_SECRET) {
     return true;
+  }
+
+  return hasValidConfiguredFrontendSharedSecret(req);
+}
+
+function hasValidConfiguredFrontendSharedSecret(req: http.IncomingMessage): boolean {
+  if (!FRONTEND_SHARED_SECRET) {
+    return false;
   }
 
   const customHeader = firstHeaderValue(
@@ -308,6 +642,158 @@ function constantTimeEqual(a: string | null, b: string): boolean {
   }
 
   return timingSafeEqual(aBuffer, bBuffer);
+}
+
+function resolveAuthApiPrefix(): string {
+  const configured = (process.env.AUTH_API_BASE_URL ?? "").trim().replace(/\/+$/, "");
+  if (configured.length > 0) {
+    return `${configured}/api`;
+  }
+
+  if (process.env.NODE_ENV !== "production") {
+    return "http://127.0.0.1:3002/api";
+  }
+
+  return "";
+}
+
+function isApiConnectionPath(pathname: string): boolean {
+  return pathname === "/api/bot/api-connection" || pathname === "/api/bot/api-connection/test";
+}
+
+async function resolveUserBearerAuth(req: http.IncomingMessage): Promise<AuthUserLookupResult> {
+  const bearerToken = parseBearerToken(firstHeaderValue(req.headers.authorization));
+  if (!bearerToken) {
+    return { ok: false, status: 401, error: "Missing bearer token" };
+  }
+  return fetchAuthUserId(bearerToken);
+}
+
+function isWatchlistApiPath(pathname: string): boolean {
+  return (
+    pathname === "/api/bot/watchlists" ||
+    pathname.startsWith("/api/bot/watchlists/") ||
+    pathname === "/api/bot/watchlist-signals"
+  );
+}
+
+async function resolveWatchlistAccess(
+  req: http.IncomingMessage
+): Promise<WatchlistAccessResolution> {
+  if (hasValidConfiguredFrontendSharedSecret(req)) {
+    return { ok: true, access: { mode: "admin", authUserId: null } };
+  }
+
+  const bearerToken = parseBearerToken(firstHeaderValue(req.headers.authorization));
+  if (!bearerToken) {
+    return { ok: false, status: 401, error: "Missing bearer token" };
+  }
+
+  const lookup = await fetchAuthUserId(bearerToken);
+  if (!lookup.ok) {
+    return lookup;
+  }
+
+  return { ok: true, access: { mode: "user", authUserId: lookup.userId } };
+}
+
+async function fetchAuthUserId(bearerToken: string): Promise<AuthUserLookupResult> {
+  if (!AUTH_API_PREFIX) {
+    return {
+      ok: false,
+      status: 503,
+      error: "Auth service is not configured",
+    };
+  }
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), AUTH_API_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(`${AUTH_API_PREFIX}/auth/me`, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${bearerToken}`,
+      },
+      signal: controller.signal,
+    });
+    const payload = (await response.json().catch(() => ({}))) as {
+      error?: string;
+      user?: { id?: string };
+    };
+
+    if (!response.ok) {
+      if (response.status === 401 || response.status === 403) {
+        return {
+          ok: false,
+          status: 401,
+          error: payload.error ?? "Invalid or expired session",
+        };
+      }
+
+      return {
+        ok: false,
+        status: 503,
+        error: payload.error ?? `Auth service request failed (${response.status})`,
+      };
+    }
+
+    const userId = typeof payload.user?.id === "string" ? payload.user.id.trim() : "";
+    if (!userId) {
+      return {
+        ok: false,
+        status: 503,
+        error: "Auth service returned an invalid user session",
+      };
+    }
+
+    return { ok: true, userId };
+  } catch (err) {
+    const errorName = err instanceof Error ? err.name : "";
+    const isAbort = errorName === "AbortError";
+    return {
+      ok: false,
+      status: 503,
+      error: isAbort
+        ? "Auth service request timed out"
+        : "Auth service is unavailable",
+    };
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+function isWatchlistOwnedByUser(watchlistUserId: string, authUserId: string): boolean {
+  return watchlistUserId === authUserId || watchlistUserId.startsWith(`${authUserId}:`);
+}
+
+function filterWatchlistsForUser(
+  watchlists: UserWatchlist[],
+  authUserId: string
+): UserWatchlist[] {
+  return watchlists.filter((watchlist) => isWatchlistOwnedByUser(watchlist.userId, authUserId));
+}
+
+function filterSignalsForUser(
+  signals: WatchlistSignalEvent[],
+  authUserId: string
+): WatchlistSignalEvent[] {
+  return signals.filter((signal) => isWatchlistOwnedByUser(signal.userId, authUserId));
+}
+
+function countWatchedSymbolsForWatchlists(watchlists: UserWatchlist[]): number {
+  const symbols = new Set<string>();
+  for (const watchlist of watchlists) {
+    if (!watchlist.enabled) continue;
+    for (const symbol of watchlist.symbols) {
+      symbols.add(symbol);
+    }
+  }
+  return symbols.size;
+}
+
+function normalizeSignalLimit(limit: number): number {
+  return Math.max(1, Math.min(1_000, Math.round(limit) || 100));
 }
 
 function getClientIp(req: http.IncomingMessage): string {

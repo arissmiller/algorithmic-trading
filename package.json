@@ -4,12 +4,31 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "concurrently -n api,frontend -c cyan,magenta \"npm --prefix data-service run dev\" \"npm --prefix frontend run dev\"",
+    "dev": "concurrently -n api,auth,frontend -c cyan,green,magenta \"npm --prefix data-service run dev\" \"npm --prefix auth-service run dev\" \"npm --prefix frontend run dev\"",
+    "dev:railway": "concurrently -n api,auth,frontend -c cyan,green,magenta \"npm run dev:api:railway\" \"npm run dev:auth:railway\" \"npm run dev:frontend:railway\"",
     "dev:api": "npm --prefix data-service run dev",
+    "dev:api:railway": "railway run --service data-service --environment development npm --prefix data-service run dev",
+    "dev:auth:railway": "railway run --service auth-service --environment development npm --prefix auth-service run dev",
+    "dev:auth": "npm --prefix auth-service run dev",
+    "dev:dispatch": "npm --prefix dispatch-service run dev",
+    "dev:dispatch:railway": "railway run --service dispatch-service --environment development npm --prefix dispatch-service run dev",
+    "dev:frontend:railway": "railway run --service frontend --environment development npm --prefix frontend run dev",
     "dev:frontend": "npm --prefix frontend run dev",
     "build": "npm --prefix frontend run build",
     "build:api": "npm --prefix data-service run build",
-    "build:frontend": "npm --prefix frontend run build"
+    "build:auth": "npm --prefix auth-service run build",
+    "build:dispatch": "npm --prefix dispatch-service run build",
+    "build:frontend": "npm --prefix frontend run build",
+    "railway:whoami": "railway whoami",
+    "railway:status:dev": "railway service list --environment development",
+    "railway:env:dev:new": "railway environment new development --duplicate production",
+    "railway:env:dev:link": "railway environment link development",
+    "railway:dev:bootstrap": "bash scripts/railway-dev-bootstrap.sh",
+    "railway:deploy:dev:frontend": "railway up --service frontend --environment development --path-as-root --detach frontend",
+    "railway:deploy:dev:data": "railway up --service data-service --environment development --path-as-root --detach data-service",
+    "railway:deploy:dev:auth": "railway up --service auth-service --environment development --path-as-root --detach auth-service",
+    "railway:deploy:dev:dispatch": "railway up --service dispatch-service --environment development --path-as-root --detach dispatch-service",
+    "railway:deploy:dev:all": "npm run railway:deploy:dev:frontend && npm run railway:deploy:dev:data && npm run railway:deploy:dev:auth && npm run railway:deploy:dev:dispatch"
   },
   "devDependencies": {
     "concurrently": "^9.2.1"

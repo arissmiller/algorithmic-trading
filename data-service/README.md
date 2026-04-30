@@ -1,6 +1,6 @@
 # Data Service
 
-This folder is the backend service boundary for market data.
+This folder is the backend service boundary for market data and bot execution.
 
 ## Purpose
 
@@ -9,15 +9,38 @@ Expose a stable contract to the frontend while isolating provider details.
 - Frontend contract:
 	- `/api/health`
 	- `/api/bars?symbol=...&range=...`
-	- `/api/alpaca/account` (read-only snapshot; no trading/order routes exposed)
+	- `/api/alpaca/account` (read-only snapshot)
+	- `/api/bot/*` (protected bot + watchlist execution routes)
 - Provider logic: Alpaca-only market data + normalization and error mapping
 
 ## Runtime entrypoints
 
 - Local dev proxy: `server.ts`
 - Serverless (Vercel): `api/health.ts`, `api/bars.ts`, `api/alpaca/account.ts`
+- Bot execution engine: `bot.ts`
+- Multi-user watchlist signal engine: `watchlistExecution.ts`
+- Dispatch integration layer: `signalDispatch.ts`
 
-Both entrypoints use `core.ts` so behavior stays consistent.
+All entrypoints use `core.ts` for market/account behavior consistency.
+
+## Bot and Watchlist Routes (protected)
+
+- `GET /api/bot/list`
+- `POST /api/bot/start`
+- `POST /api/bot/stop/:id`
+- `DELETE /api/bot/:id`
+- `GET /api/bot/watchlists`
+- `PUT /api/bot/watchlists`
+- `PUT /api/bot/watchlists/:userId`
+- `DELETE /api/bot/watchlists/:userId`
+- `POST /api/bot/watchlists/scan?timeframe=1Hour|1Day`
+- `GET /api/bot/watchlist-signals?limit=100`
+
+Watchlist endpoint auth behavior:
+
+- Shared-secret caller (`FRONTEND_SHARED_SECRET`) is treated as admin and can access all watchlists/signals.
+- Bearer auth caller is validated against the auth service (`GET /api/auth/me`) and is scoped to its own user ID (`userId` or `${userId}:...`).
+- `PUT /api/bot/watchlists` (bulk replace) is admin-only.
 
 ## Why this split helps
 
@@ -38,6 +61,13 @@ Before exposing this service publicly, set these Railway environment variables:
 - `FRONTEND_SHARED_SECRET`:
 	- Optional but recommended for stronger protection.
 	- If set, protected routes require either `Authorization: Bearer <secret>` or `x-frontend-secret: <secret>`.
+- `AUTH_API_BASE_URL`:
+	- Base URL for the auth service used to validate bearer sessions for watchlist routes.
+	- Example: `https://auth-service.up.railway.app`
+	- In non-production, defaults to `http://127.0.0.1:3002` when unset.
+- `AUTH_API_TIMEOUT_MS`:
+	- Timeout in milliseconds for auth session validation calls.
+	- Default: `5000`
 - `FRONTEND_SHARED_SECRET_HEADER`:
 	- Optional custom header name for the shared secret.
 	- Default: `x-frontend-secret`
@@ -69,6 +99,21 @@ Before exposing this service publicly, set these Railway environment variables:
 - `ALPACA_REQUEST_TIMEOUT_MS`:
 	- Timeout per Alpaca request.
 	- Default: `10000`
+- `SIGNAL_DISPATCH_URL`:
+	- Optional HTTP endpoint to receive generated watchlist signals.
+	- Example: `https://dispatch-service.up.railway.app/api/dispatch/signal`
+	- If unset, signals are still generated and stored, but dispatch is marked as skipped.
+- `SIGNAL_DISPATCH_TIMEOUT_MS`:
+	- Timeout in milliseconds for dispatch HTTP requests.
+	- Default: `5000`
+- `SIGNAL_DISPATCH_AUTH_HEADER`:
+	- Optional auth header name used when sending to dispatch service.
+	- Default: `x-dispatch-token`
+- `SIGNAL_DISPATCH_AUTH_TOKEN`:
+	- Optional auth token value sent to the dispatch service.
+- `WATCHLIST_SIGNAL_HISTORY_LIMIT`:
+	- Max in-memory watchlist signal events retained for `/api/bot/watchlist-signals`.
+	- Default: `500`
 
 Notes:
 
@@ -76,7 +121,8 @@ Notes:
 - Shared-secret auth only stays secret if your frontend calls this API from server-side code.
 - If your frontend is fully static/browser-only, no client-side secret is truly private.
 - `^GSPC` requests are mapped to `SPY` for Alpaca bars.
-- No account mutation or order placement API is exposed by this service. It is read-only by design.
+- `/api/alpaca/*` endpoints remain read-only by design.
+- `/api/bot/*` endpoints are protected control-plane routes and can place Alpaca orders for running bots.
 
 Example frontend request (server-side runtime):
 

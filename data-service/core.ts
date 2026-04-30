@@ -61,8 +61,20 @@ export async function fetchMarketBars(input: {
   return fetchFromAlpaca(symbol, range, timeframe);
 }
 
-export async function fetchAlpacaAccountSnapshot(): Promise<AlpacaAccountSnapshot> {
-  if (!hasAlpacaCredentials()) {
+export async function fetchAlpacaAccountSnapshot(
+  credentials?: { keyId: string; secretKey: string; paper: boolean }
+): Promise<AlpacaAccountSnapshot> {
+  const keyId = credentials?.keyId ?? ALPACA_API_KEY_ID;
+  const secretKey = credentials?.secretKey ?? ALPACA_API_SECRET_KEY;
+  const tradingBaseUrl = credentials
+    ? normalizeAlpacaTradingBaseUrl(
+        credentials.paper
+          ? "https://paper-api.alpaca.markets/v2"
+          : "https://api.alpaca.markets/v2"
+      )
+    : ALPACA_TRADING_BASE_URL;
+
+  if (!keyId || !secretKey) {
     throw new ApiHttpError(
       400,
       "Missing Alpaca API credentials. Set APCA_API_KEY_ID and APCA_API_SECRET_KEY."
@@ -71,23 +83,23 @@ export async function fetchAlpacaAccountSnapshot(): Promise<AlpacaAccountSnapsho
 
   const [accountResponse, positionsResponse] = await Promise.all([
     fetchWithTimeout(
-      `${ALPACA_TRADING_BASE_URL}/account`,
+      `${tradingBaseUrl}/account`,
       {
         headers: {
           Accept: "application/json",
-          "APCA-API-KEY-ID": ALPACA_API_KEY_ID,
-          "APCA-API-SECRET-KEY": ALPACA_API_SECRET_KEY,
+          "APCA-API-KEY-ID": keyId,
+          "APCA-API-SECRET-KEY": secretKey,
         },
       },
       ALPACA_REQUEST_TIMEOUT_MS
     ),
     fetchWithTimeout(
-      `${ALPACA_TRADING_BASE_URL}/positions`,
+      `${tradingBaseUrl}/positions`,
       {
         headers: {
           Accept: "application/json",
-          "APCA-API-KEY-ID": ALPACA_API_KEY_ID,
-          "APCA-API-SECRET-KEY": ALPACA_API_SECRET_KEY,
+          "APCA-API-KEY-ID": keyId,
+          "APCA-API-SECRET-KEY": secretKey,
         },
       },
       ALPACA_REQUEST_TIMEOUT_MS

@@ -6,3 +6,6 @@ dist/
 .env.*
 !.env.example
 data-service/bot-state.json
+data-service/watchlist-state.json
+auth-service/auth-state.json
+dispatch-service/dispatch-state.json

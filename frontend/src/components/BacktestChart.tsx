@@ -102,8 +102,7 @@ export default function BacktestChart({
             position: "belowBar" as SeriesMarker<Time>["position"],
             color: "#26a69a",
             shape: "arrowUp" as SeriesMarker<Time>["shape"],
-            text: `IN $${Math.round(t.amountUsd)}`,
-            size: 1 + t.signalScore,
+            size: 0.7,
           }) as SeriesMarker<Time>
       ),
       ...scaleOutTrades.map(
@@ -113,8 +112,7 @@ export default function BacktestChart({
             position: "aboveBar" as SeriesMarker<Time>["position"],
             color: "#ef5350",
             shape: "arrowDown" as SeriesMarker<Time>["shape"],
-            text: `OUT $${Math.round(t.amountUsd)}`,
-            size: 1 + t.signalScore,
+            size: 0.7,
           }) as SeriesMarker<Time>
       ),
     ]

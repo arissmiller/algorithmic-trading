@@ -9,13 +9,5 @@
     "skipLibCheck": true,
     "types": ["node"]
   },
-  "include": [
-    "server.ts",
-    "core.ts",
-    "bot.ts",
-    "botSignals.ts",
-    "watchlistExecution.ts",
-    "signalDispatch.ts",
-    "api/**/*.ts"
-  ]
+  "include": ["server.ts", "src/**/*.ts"]
 }

@@ -12,16 +12,12 @@ import PerformanceSummary from "./components/PerformanceSummary";
 import BacktestChart from "./components/BacktestChart";
 import AIControlCenter from "./components/AIControlCenter";
 import PaperTradingBot from "./components/PaperTradingBot";
+import AuthGate, { type AuthUser } from "./components/AuthGate";
+import WatchlistsManagerPage from "./components/WatchlistsManagerPage";
+import AccountPage from "./components/AccountPage";
+import CommunityPage from "./components/CommunityPage";
 import { BacktestResult, DirectionalBacktestResult, runBacktest } from "./lib/backtest";
 import { Bar, SIGNAL_META, SignalWeight } from "./lib/signals";
-
-type AppPage =
-  | "backtesting"
-  | "crypto_backtesting"
-  | "capital_management"
-  | "market_research"
-  | "paper_bot"
-  | "about";
 
 const STOCK_BENCHMARK_SYMBOL = "^GSPC";
 const CRYPTO_BENCHMARK_SYMBOL = "BTC/USD";
@@ -71,6 +67,21 @@ type PresetRankingMetric =
   | "profit_pct"
   | "alpha_pct";
 
+type AppPage =
+  | "stocks_backtest"
+  | "crypto_backtest"
+  | "watchlists"
+  | "community"
+  | "account";
+
+const APP_PAGES: { id: AppPage; label: string }[] = [
+  { id: "stocks_backtest", label: "Stocks/ETF Backtest" },
+  { id: "crypto_backtest", label: "Crypto Backtest" },
+  { id: "watchlists", label: "Watchlists" },
+  { id: "community", label: "Community" },
+  { id: "account", label: "Account" },
+];
+
 export default function App() {
   const {
     bars,
@@ -87,11 +98,12 @@ export default function App() {
     setRunError,
     setServerOnline,
   } = useStore();
-  const [activePage, setActivePage] = useState<AppPage>("backtesting");
   const [lastRunSignals, setLastRunSignals] = useState<SignalWeight[]>([]);
   const [lastRunStrategyId, setLastRunStrategyId] = useState("");
   const [presetRuns, setPresetRuns] = useState<PresetBacktestRun[]>([]);
   const [selectedPresetKey, setSelectedPresetKey] = useState<StrategyPresetKey | null>(null);
+  const [activePage, setActivePage] = useState<AppPage>("stocks_backtest");
+  const [authUser, setAuthUser] = useState<AuthUser | null>(null);
 
   useEffect(() => {
     async function check() {
@@ -107,6 +119,23 @@ export default function App() {
     const id = setInterval(check, 5000);
     return () => clearInterval(id);
   }, [setServerOnline]);
+
+  useEffect(() => {
+    if (!result) return;
+
+    const resultIsCrypto = isLikelyCryptoSymbol(result.symbol);
+    const pageIsStocks = activePage === "stocks_backtest";
+    const pageIsCrypto = activePage === "crypto_backtest";
+
+    if ((pageIsStocks && resultIsCrypto) || (pageIsCrypto && !resultIsCrypto)) {
+      setResult(null);
+      setRunError(null);
+      setPresetRuns([]);
+      setSelectedPresetKey(null);
+      setLastRunSignals([]);
+      setBars([]);
+    }
+  }, [activePage, result, setBars, setResult, setRunError]);
 
   const barsCacheRef = useRef<Record<string, Bar[]>>({});
 
@@ -346,56 +375,48 @@ export default function App() {
 
   return (
     <div className="flex h-screen flex-col bg-surface text-text-primary overflow-hidden">
+      <AuthGate onAuthUserChange={setAuthUser} />
       <div className="pointer-events-none fixed left-1/2 top-2 z-50 -translate-x-1/2 rounded border-2 border-yellow-200 bg-yellow-300 px-4 py-1.5 text-center text-xs font-bold uppercase tracking-wide text-black shadow-[0_0_18px_rgba(253,224,71,0.55)]">
         Nothing here is intended as financial advice. All trades are virtual.
       </div>
 
       <header className="border-b border-border bg-surface-1 shadow-[0_0_18px_rgba(70,215,255,0.12)]">
-        <div className="px-4 py-3 flex items-center gap-2">
+        <div className="flex items-center gap-2 border-b border-border/70 px-4 py-3 pr-24">
           <span className="text-sm font-semibold tracking-tight">Smart Scale</span>
           <span
             className={`ml-auto h-2 w-2 rounded-full ${serverOnline ? "bg-buy" : "bg-sell"}`}
             title={serverOnline ? "API online" : "API offline"}
           />
+          <span className="text-[10px] text-text-secondary">
+            {serverOnline ? "API online" : "API offline"}
+          </span>
         </div>
-        <nav className="px-2 pb-2 flex gap-1">
-          <PageTab
-            label="Backtesting"
-            active={activePage === "backtesting"}
-            onClick={() => setActivePage("backtesting")}
-          />
-          <PageTab
-            label="Crypto Backtesting"
-            active={activePage === "crypto_backtesting"}
-            onClick={() => setActivePage("crypto_backtesting")}
-          />
-          <PageTab
-            label="Capital Management"
-            active={activePage === "capital_management"}
-            onClick={() => setActivePage("capital_management")}
-          />
-          <PageTab
-            label="Market Research"
-            active={activePage === "market_research"}
-            onClick={() => setActivePage("market_research")}
-          />
-          <PageTab
-            label="Paper Bot"
-            active={activePage === "paper_bot"}
-            onClick={() => setActivePage("paper_bot")}
-          />
-          <PageTab
-            label="About"
-            active={activePage === "about"}
-            onClick={() => setActivePage("about")}
-          />
+        <nav className="flex gap-1 overflow-x-auto px-3 py-2">
+          {APP_PAGES.map((page) => {
+            const active = page.id === activePage;
+            return (
+              <button
+                key={page.id}
+                type="button"
+                onClick={() => setActivePage(page.id)}
+                className={`rounded border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide transition-colors ${
+                  active
+                    ? "border-accent/50 bg-accent/15 text-accent"
+                    : "border-border bg-surface-2 text-text-secondary hover:text-text-primary"
+                }`}
+              >
+                {page.label}
+              </button>
+            );
+          })}
         </nav>
       </header>
 
       <main className="flex-1 min-h-0">
-        {activePage === "backtesting" && (
+        {activePage === "stocks_backtest" && (
           <BacktestingPage
-            title="Equity Backtesting"
+            key="stocks_backtest"
+            title="Stocks/ETF Backtesting"
             defaultSymbol="AAPL"
             running={running}
             runError={runError}
@@ -412,8 +433,10 @@ export default function App() {
             onSelectPresetRun={handleSelectPresetRun}
           />
         )}
-        {activePage === "crypto_backtesting" && (
+
+        {activePage === "crypto_backtest" && (
           <BacktestingPage
+            key="crypto_backtest"
             title="Crypto Backtesting"
             defaultSymbol="BTC/USD"
             running={running}
@@ -431,43 +454,34 @@ export default function App() {
             onSelectPresetRun={handleSelectPresetRun}
           />
         )}
-        {activePage === "capital_management" && <CapitalManagementPage />}
-        {activePage === "market_research" && (
-          <MarketResearchPage
-            suggestedStrategyId={lastRunStrategyId}
-            suggestedStrategySummary={summarizeSignals(lastRunSignals)}
-          />
+
+        {activePage === "watchlists" && (
+          authUser ? (
+            <WatchlistsManagerPage authUser={authUser} />
+          ) : (
+            <AuthRequiredPanel message="Sign in to view or manage your watchlists." />
+          )
         )}
-        {activePage === "paper_bot" && <PaperTradingBot />}
-        {activePage === "about" && <AboutPage />}
+
+        {activePage === "community" && <CommunityPage />}
+
+        {activePage === "account" && <AccountPage authUser={authUser} />}
       </main>
     </div>
   );
 }
 
-function PageTab({
-  label,
-  active,
-  onClick,
-}: {
-  label: string;
-  active: boolean;
-  onClick: () => void;
-}) {
+function AuthRequiredPanel({ message }: { message: string }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`rounded px-3 py-1.5 text-xs transition-colors ${
-        active
-          ? "bg-accent/25 text-accent border border-accent/60 shadow-[0_0_12px_rgba(70,215,255,0.28)]"
-          : "bg-surface-2 text-text-secondary border border-border hover:text-text-primary hover:border-accent/30"
-      }`}
-    >
-      {label}
-    </button>
+    <div className="h-full overflow-auto p-4">
+      <section className="rounded border border-border bg-surface-1 p-4">
+        <h2 className="mb-2 text-sm font-semibold">Authentication Required</h2>
+        <p className="text-xs text-text-secondary">{message}</p>
+      </section>
+    </div>
   );
 }
+
 
 function BacktestingPage({
   title,
