@@ -4,14 +4,35 @@ on:
   push:
     branches: ["main"]
   workflow_dispatch:
+    inputs:
+      git_ref:
+        description: Git ref to deploy to production (branch, tag, or SHA)
+        required: true
+        default: main
+      confirm_production:
+        description: Type DEPLOY_PRODUCTION to continue
+        required: true
 
 permissions:
   contents: read
 
+concurrency:
+  group: railway-deploy-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
-  deploy-frontend:
-    name: Deploy frontend
+  deploy-staging:
+    name: Deploy staging (${{ matrix.service }})
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - service: frontend
+            path: frontend
+          - service: data-service
+            path: data-service
     steps:
       - uses: actions/checkout@v4
 
@@ -22,17 +43,41 @@ jobs:
       - name: Install Railway CLI
         run: npm install -g @railway/cli
 
-      - name: Deploy frontend to Railway
-        working-directory: frontend
-        run: railway up --service frontend --detach
+      - name: Deploy to Railway staging
+        run: railway up --service ${{ matrix.service }} --environment staging --path-as-root --detach ${{ matrix.path }}
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
 
-  deploy-data-service:
-    name: Deploy data-service
+  validate-production-request:
+    name: Validate production request
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
+      - name: Confirm production deployment intent
+        run: |
+          if [ "${{ github.event.inputs.confirm_production }}" != "DEPLOY_PRODUCTION" ]; then
+            echo "Invalid confirmation value. Type DEPLOY_PRODUCTION to proceed."
+            exit 1
+          fi
+
+  deploy-production:
+    name: Deploy production (${{ matrix.service }})
+    if: github.event_name == 'workflow_dispatch'
+    needs: validate-production-request
+    environment: production
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - service: frontend
+            path: frontend
+          - service: data-service
+            path: data-service
+    steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.git_ref }}
 
       - uses: actions/setup-node@v4
         with:
@@ -41,46 +86,7 @@ jobs:
       - name: Install Railway CLI
         run: npm install -g @railway/cli
 
-      - name: Deploy data-service to Railway
-        working-directory: data-service
-        run: railway up --service data-service --detach
-        env:
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
-
-  deploy-auth-service:
-    name: Deploy auth-service
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-
-      - name: Install Railway CLI
-        run: npm install -g @railway/cli
-
-      - name: Deploy auth-service to Railway
-        working-directory: auth-service
-        run: railway up --service auth-service --detach
-        env:
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
-
-  deploy-dispatch-service:
-    name: Deploy dispatch-service
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-
-      - name: Install Railway CLI
-        run: npm install -g @railway/cli
-
-      - name: Deploy dispatch-service to Railway
-        working-directory: dispatch-service
-        run: railway up --service dispatch-service --detach
+      - name: Deploy to Railway production
+        run: railway up --service ${{ matrix.service }} --environment production --path-as-root --detach ${{ matrix.path }}
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}

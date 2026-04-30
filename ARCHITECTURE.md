@@ -23,7 +23,7 @@
 - Location: `auth-service/`
 - Local/hosted runtime: `auth-service/server.ts`
 - Core auth logic: `auth-service/src/authCore.ts`
-- Persistence (v1): `auth-service/auth-state.json` file
+- Persistence: PostgreSQL (`DATABASE_URL`) for users/sessions
 
 ## Dispatch Service
 

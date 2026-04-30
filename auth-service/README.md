@@ -22,8 +22,8 @@ Registration is invite-gated. `POST /api/auth/register` must include `inviteCode
 
 - `PORT` (default `3002`)
 - `ALLOWED_ORIGINS` comma-separated CORS allowlist
+- `DATABASE_URL` PostgreSQL connection string (required)
 - `AUTH_TOKEN_TTL_SECONDS` (default `2592000` = 30 days)
-- `AUTH_STATE_FILE` optional path for JSON persistence file
 - `EMAIL_VERIFICATION_REQUIRED` (default `true`)
 - `EMAIL_VERIFICATION_TOKEN_TTL_SECONDS` (default `86400` = 24 hours)
 - `EMAIL_VERIFICATION_BASE_URL` frontend base URL used for verification links
@@ -34,5 +34,4 @@ Registration is invite-gated. `POST /api/auth/register` must include `inviteCode
 
 ## Notes
 
-- This version persists users/sessions in a JSON file (`auth-state.json`) including email verification state.
-- For production multi-instance deployments, move state to PostgreSQL.
+- This service now persists users/sessions directly in PostgreSQL.

@@ -1,6 +1,5 @@
 import { createHash, randomBytes, randomUUID, scrypt as scryptCallback, timingSafeEqual } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import path from "node:path";
+import { Pool, type PoolClient } from "pg";
 import { promisify } from "node:util";
 
 const scrypt = promisify(scryptCallback);
@@ -22,23 +21,6 @@ interface AuthUser extends PublicUser {
   passwordHash: string;
   emailVerificationTokenHash: string | null;
   emailVerificationTokenExpiresAt: string | null;
-}
-
-interface AuthSession {
-  id: string;
-  userId: string;
-  tokenHash: string;
-  createdAt: string;
-  expiresAt: string;
-  revokedAt: string | null;
-  lastSeenAt: string;
-  createdFromIp: string | null;
-  createdFromUserAgent: string | null;
-}
-
-interface AuthState {
-  users: AuthUser[];
-  sessions: AuthSession[];
 }
 
 interface SessionMetadata {
@@ -76,20 +58,18 @@ export class AuthError extends Error {
 }
 
 export class AuthCore {
-  private statePath: string;
+  private pool: Pool;
   private tokenTtlSeconds: number;
   private emailVerificationRequired: boolean;
   private emailVerificationTokenTtlSeconds: number;
-  private state: AuthState = { users: [], sessions: [] };
-  private persistChain: Promise<void> = Promise.resolve();
 
   constructor(input: {
-    statePath: string;
+    databaseUrl: string;
     tokenTtlSeconds: number;
     emailVerificationRequired: boolean;
     emailVerificationTokenTtlSeconds: number;
   }) {
-    this.statePath = input.statePath;
+    this.pool = new Pool({ connectionString: input.databaseUrl });
     this.tokenTtlSeconds = Math.max(300, Math.round(input.tokenTtlSeconds));
     this.emailVerificationRequired = input.emailVerificationRequired;
     this.emailVerificationTokenTtlSeconds = Math.max(
@@ -99,30 +79,45 @@ export class AuthCore {
   }
 
   async load(): Promise<void> {
-    try {
-      const raw = await readFile(this.statePath, "utf8");
-      const parsed = JSON.parse(raw) as Partial<AuthState>;
-      const users = Array.isArray(parsed.users) ? parsed.users : [];
-      const sessions = Array.isArray(parsed.sessions) ? parsed.sessions : [];
+    await this.pool.query(`
+      create table if not exists auth_users (
+        id uuid primary key,
+        email text not null unique,
+        name text not null,
+        created_at timestamptz not null,
+        email_verified_at timestamptz null,
+        password_hash text not null,
+        email_verification_token_hash text null,
+        email_verification_token_expires_at timestamptz null
+      );
+    `);
 
-      this.state = {
-        users: users
-          .map((value) => normalizeAuthUser(value))
-          .filter((value): value is AuthUser => value !== null),
-        sessions: sessions.filter(isAuthSession),
-      };
+    await this.pool.query(`
+      create table if not exists auth_sessions (
+        id uuid primary key,
+        user_id uuid not null references auth_users(id) on delete cascade,
+        token_hash text not null unique,
+        created_at timestamptz not null,
+        expires_at timestamptz not null,
+        revoked_at timestamptz null,
+        last_seen_at timestamptz not null,
+        created_from_ip text null,
+        created_from_user_agent text null
+      );
+    `);
 
-      this.pruneExpiredSessions();
-      this.pruneExpiredVerificationTokens();
-      await this.persist();
-    } catch (err) {
-      const code = (err as NodeJS.ErrnoException | null)?.code;
-      if (code === "ENOENT") {
-        this.state = { users: [], sessions: [] };
-        return;
-      }
-      throw err;
-    }
+    await this.pool.query(
+      "create index if not exists idx_auth_sessions_user_id on auth_sessions(user_id);"
+    );
+    await this.pool.query(
+      "create index if not exists idx_auth_sessions_expires_at on auth_sessions(expires_at);"
+    );
+    await this.pool.query(
+      "create index if not exists idx_auth_users_verification_hash on auth_users(email_verification_token_hash);"
+    );
+
+    await this.pruneExpiredSessions();
+    await this.pruneExpiredVerificationTokens();
   }
 
   async register(
@@ -132,10 +127,6 @@ export class AuthCore {
     const email = normalizeEmail(input.email);
     const password = normalizePassword(input.password);
     const name = normalizeName(input.name);
-
-    if (this.state.users.some((user) => user.email === email)) {
-      throw new AuthError(409, "An account with this email already exists");
-    }
 
     const passwordHash = await hashPassword(password);
     const now = new Date();
@@ -152,31 +143,70 @@ export class AuthCore {
       emailVerificationTokenExpiresAt: null,
     };
 
-    this.state.users.push(user);
+    const client = await this.pool.connect();
+    try {
+      await client.query("begin");
 
-    if (this.emailVerificationRequired) {
-      const verification = this.issueEmailVerificationToken(user, now);
-      await this.persist();
+      await client.query(
+        `
+          insert into auth_users (
+            id,
+            email,
+            name,
+            created_at,
+            email_verified_at,
+            password_hash,
+            email_verification_token_hash,
+            email_verification_token_expires_at
+          )
+          values ($1, $2, $3, $4, $5, $6, null, null)
+        `,
+        [user.id, user.email, user.name, user.createdAt, user.emailVerifiedAt, user.passwordHash]
+      );
+
+      if (this.emailVerificationRequired) {
+        const verification = this.issueEmailVerificationToken(user, now);
+
+        await client.query(
+          `
+            update auth_users
+            set email_verification_token_hash = $2,
+                email_verification_token_expires_at = $3
+            where id = $1
+          `,
+          [user.id, user.emailVerificationTokenHash, user.emailVerificationTokenExpiresAt]
+        );
+
+        await client.query("commit");
+        return {
+          user: toPublicUser(user),
+          token: null,
+          expiresAt: null,
+          requiresEmailVerification: true,
+          verificationToken: verification.token,
+          verificationExpiresAt: verification.expiresAt,
+        };
+      }
+
+      const session = await this.issueSession(client, user, meta);
+      await client.query("commit");
       return {
-        user: toPublicUser(user),
-        token: null,
-        expiresAt: null,
-        requiresEmailVerification: true,
-        verificationToken: verification.token,
-        verificationExpiresAt: verification.expiresAt,
+        user: session.user,
+        token: session.token,
+        expiresAt: session.expiresAt,
+        requiresEmailVerification: false,
+        verificationToken: null,
+        verificationExpiresAt: null,
       };
+    } catch (err) {
+      await client.query("rollback").catch(() => undefined);
+      if (isUniqueViolation(err, "auth_users_email_key")) {
+        throw new AuthError(409, "An account with this email already exists");
+      }
+      throw err;
+    } finally {
+      client.release();
     }
-
-    const session = this.issueSession(user, meta);
-    await this.persist();
-    return {
-      user: session.user,
-      token: session.token,
-      expiresAt: session.expiresAt,
-      requiresEmailVerification: false,
-      verificationToken: null,
-      verificationExpiresAt: null,
-    };
   }
 
   async login(
@@ -186,7 +216,25 @@ export class AuthCore {
     const email = normalizeEmail(input.email);
     const password = normalizePassword(input.password);
 
-    const user = this.state.users.find((candidate) => candidate.email === email);
+    const userResult = await this.pool.query(
+      `
+        select
+          id,
+          email,
+          name,
+          created_at,
+          email_verified_at,
+          password_hash,
+          email_verification_token_hash,
+          email_verification_token_expires_at
+        from auth_users
+        where email = $1
+        limit 1
+      `,
+      [email]
+    );
+
+    const user = mapDbUser(userResult.rows[0]);
     if (!user) {
       throw new AuthError(401, "Invalid email or password");
     }
@@ -200,97 +248,139 @@ export class AuthCore {
       throw new AuthError(403, "Email not verified. Please verify your email before signing in.");
     }
 
-    const session = this.issueSession(user, meta);
-    await this.persist();
-    return session;
+    return this.issueSession(this.pool, user, meta);
   }
 
   async verifyEmail(token: string): Promise<PublicUser> {
     const normalizedToken = normalizeVerificationToken(token);
     const tokenHash = hashToken(normalizedToken);
-    const nowMs = Date.now();
+    const result = await this.pool.query(
+      `
+        update auth_users
+        set email_verified_at = now(),
+            email_verification_token_hash = null,
+            email_verification_token_expires_at = null
+        where email_verification_token_hash = $1
+          and email_verification_token_expires_at is not null
+          and email_verification_token_expires_at > now()
+        returning id, email, name, created_at, email_verified_at
+      `,
+      [tokenHash]
+    );
 
-    const user = this.state.users.find((candidate) => {
-      if (!candidate.emailVerificationTokenHash) return false;
-      if (candidate.emailVerificationTokenHash !== tokenHash) return false;
-      if (!candidate.emailVerificationTokenExpiresAt) return false;
-      const expiry = new Date(candidate.emailVerificationTokenExpiresAt).getTime();
-      return Number.isFinite(expiry) && expiry > nowMs;
-    });
-
-    if (!user) {
+    if (result.rowCount === 0) {
       throw new AuthError(400, "Invalid or expired verification token");
     }
 
-    const nowIso = new Date().toISOString();
-    user.emailVerifiedAt = nowIso;
-    user.emailVerificationTokenHash = null;
-    user.emailVerificationTokenExpiresAt = null;
-    await this.persist();
-
-    return toPublicUser(user);
+    return mapDbPublicUser(result.rows[0]);
   }
 
   async logout(token: string): Promise<void> {
     const tokenHash = hashToken(token);
-    const session = this.state.sessions.find((candidate) => candidate.tokenHash === tokenHash);
-    if (!session || session.revokedAt) {
-      return;
-    }
 
-    session.revokedAt = new Date().toISOString();
-    await this.persist();
+    await this.pool.query(
+      `
+        update auth_sessions
+        set revoked_at = now()
+        where token_hash = $1 and revoked_at is null
+      `,
+      [tokenHash]
+    );
   }
 
   async getSessionUser(token: string): Promise<PublicUser | null> {
     const tokenHash = hashToken(token);
-    const nowMs = Date.now();
 
-    const session = this.state.sessions.find((candidate) => {
-      if (candidate.tokenHash !== tokenHash) return false;
-      if (candidate.revokedAt) return false;
-      const expiry = new Date(candidate.expiresAt).getTime();
-      return Number.isFinite(expiry) && expiry > nowMs;
-    });
+    const client = await this.pool.connect();
+    try {
+      await client.query("begin");
 
-    if (!session) {
-      return null;
+      const result = await client.query(
+        `
+          select
+            u.id,
+            u.email,
+            u.name,
+            u.created_at,
+            u.email_verified_at,
+            s.id as session_id
+          from auth_sessions s
+          inner join auth_users u on u.id = s.user_id
+          where s.token_hash = $1
+            and s.revoked_at is null
+            and s.expires_at > now()
+          limit 1
+        `,
+        [tokenHash]
+      );
+
+      if (result.rowCount === 0) {
+        await client.query("commit");
+        return null;
+      }
+
+      const row = result.rows[0];
+      await client.query(
+        `
+          update auth_sessions
+          set last_seen_at = now()
+          where id = $1
+        `,
+        [row.session_id as string]
+      );
+
+      await client.query("commit");
+      return mapDbPublicUser(row);
+    } catch (err) {
+      await client.query("rollback").catch(() => undefined);
+      throw err;
+    } finally {
+      client.release();
     }
-
-    const user = this.state.users.find((candidate) => candidate.id === session.userId);
-    if (!user) {
-      return null;
-    }
-
-    session.lastSeenAt = new Date().toISOString();
-    await this.persist();
-    return toPublicUser(user);
   }
 
-  private issueSession(user: AuthUser, meta: SessionMetadata): IssueSessionResult {
-    this.pruneExpiredSessions();
+  private async issueSession(
+    executor: Pool | PoolClient,
+    user: AuthUser,
+    meta: SessionMetadata
+  ): Promise<IssueSessionResult> {
+    await this.pruneExpiredSessions();
 
     const token = randomBytes(32).toString("base64url");
     const createdAt = new Date();
     const expiresAt = new Date(createdAt.getTime() + this.tokenTtlSeconds * 1000);
 
-    const session: AuthSession = {
-      id: randomUUID(),
-      userId: user.id,
-      tokenHash: hashToken(token),
-      createdAt: createdAt.toISOString(),
-      expiresAt: expiresAt.toISOString(),
-      revokedAt: null,
-      lastSeenAt: createdAt.toISOString(),
-      createdFromIp: meta.ip,
-      createdFromUserAgent: meta.userAgent,
-    };
+    const sessionId = randomUUID();
+    await executor.query(
+      `
+        insert into auth_sessions (
+          id,
+          user_id,
+          token_hash,
+          created_at,
+          expires_at,
+          revoked_at,
+          last_seen_at,
+          created_from_ip,
+          created_from_user_agent
+        )
+        values ($1, $2, $3, $4, $5, null, $4, $6, $7)
+      `,
+      [
+        sessionId,
+        user.id,
+        hashToken(token),
+        createdAt.toISOString(),
+        expiresAt.toISOString(),
+        meta.ip,
+        meta.userAgent,
+      ]
+    );
 
-    this.state.sessions.push(session);
     return {
       user: toPublicUser(user),
       token,
-      expiresAt: session.expiresAt,
+      expiresAt: expiresAt.toISOString(),
     };
   }
 
@@ -307,42 +397,90 @@ export class AuthCore {
     };
   }
 
-  private pruneExpiredSessions(): void {
-    const nowMs = Date.now();
-    this.state.sessions = this.state.sessions.filter((session) => {
-      if (session.revokedAt) return false;
-      const expiry = new Date(session.expiresAt).getTime();
-      return Number.isFinite(expiry) && expiry > nowMs;
-    });
+  private async pruneExpiredSessions(): Promise<void> {
+    await this.pool.query(
+      `
+        delete from auth_sessions
+        where revoked_at is not null
+           or expires_at <= now()
+      `
+    );
   }
 
-  private pruneExpiredVerificationTokens(): void {
-    const nowMs = Date.now();
-    for (const user of this.state.users) {
-      if (!user.emailVerificationTokenExpiresAt) continue;
-      const expiry = new Date(user.emailVerificationTokenExpiresAt).getTime();
-      if (!Number.isFinite(expiry) || expiry <= nowMs) {
-        user.emailVerificationTokenHash = null;
-        user.emailVerificationTokenExpiresAt = null;
-      }
-    }
+  private async pruneExpiredVerificationTokens(): Promise<void> {
+    await this.pool.query(
+      `
+        update auth_users
+        set email_verification_token_hash = null,
+            email_verification_token_expires_at = null
+        where email_verification_token_expires_at is not null
+          and email_verification_token_expires_at <= now()
+      `
+    );
+  }
+}
+
+interface DbPublicUserRow {
+  id: string;
+  email: string;
+  name: string;
+  created_at: Date | string;
+  email_verified_at: Date | string | null;
+}
+
+interface DbUserRow extends DbPublicUserRow {
+  password_hash: string;
+  email_verification_token_hash: string | null;
+  email_verification_token_expires_at: Date | string | null;
+}
+
+function mapDbPublicUser(row: DbPublicUserRow): PublicUser {
+  return {
+    id: row.id,
+    email: row.email,
+    name: row.name,
+    createdAt: toIsoString(row.created_at),
+    emailVerifiedAt: toNullableIsoString(row.email_verified_at),
+  };
+}
+
+function mapDbUser(row: DbUserRow | undefined): AuthUser | null {
+  if (!row) {
+    return null;
   }
 
-  private async persist(): Promise<void> {
-    const payload: AuthState = {
-      users: this.state.users,
-      sessions: this.state.sessions,
-    };
+  return {
+    id: row.id,
+    email: row.email,
+    name: row.name,
+    createdAt: toIsoString(row.created_at),
+    emailVerifiedAt: toNullableIsoString(row.email_verified_at),
+    passwordHash: row.password_hash,
+    emailVerificationTokenHash: row.email_verification_token_hash,
+    emailVerificationTokenExpiresAt: toNullableIsoString(row.email_verification_token_expires_at),
+  };
+}
 
-    this.persistChain = this.persistChain
-      .catch(() => undefined)
-      .then(async () => {
-        await mkdir(path.dirname(this.statePath), { recursive: true });
-        await writeFile(this.statePath, JSON.stringify(payload, null, 2), "utf8");
-      });
-
-    await this.persistChain;
+function toIsoString(value: Date | string): string {
+  if (value instanceof Date) {
+    return value.toISOString();
   }
+  return new Date(value).toISOString();
+}
+
+function toNullableIsoString(value: Date | string | null): string | null {
+  if (value === null) {
+    return null;
+  }
+  return toIsoString(value);
+}
+
+function isUniqueViolation(err: unknown, constraint: string): boolean {
+  if (!err || typeof err !== "object") {
+    return false;
+  }
+  const candidate = err as { code?: string; constraint?: string };
+  return candidate.code === "23505" && candidate.constraint === constraint;
 }
 
 function normalizeEmail(email: string): string {
@@ -421,58 +559,4 @@ function toPublicUser(user: AuthUser): PublicUser {
     createdAt: user.createdAt,
     emailVerifiedAt: user.emailVerifiedAt,
   };
-}
-
-function normalizeAuthUser(value: unknown): AuthUser | null {
-  if (!value || typeof value !== "object") return null;
-  const user = value as Partial<AuthUser>;
-  if (
-    typeof user.id !== "string" ||
-    typeof user.email !== "string" ||
-    typeof user.name !== "string" ||
-    typeof user.createdAt !== "string" ||
-    typeof user.passwordHash !== "string"
-  ) {
-    return null;
-  }
-
-  const emailVerifiedAt =
-    typeof user.emailVerifiedAt === "string"
-      ? user.emailVerifiedAt
-      : user.emailVerifiedAt === null
-        ? null
-        : user.createdAt;
-
-  const emailVerificationTokenHash =
-    typeof user.emailVerificationTokenHash === "string" ? user.emailVerificationTokenHash : null;
-
-  const emailVerificationTokenExpiresAt =
-    typeof user.emailVerificationTokenExpiresAt === "string"
-      ? user.emailVerificationTokenExpiresAt
-      : null;
-
-  return {
-    id: user.id,
-    email: user.email,
-    name: user.name,
-    createdAt: user.createdAt,
-    emailVerifiedAt,
-    passwordHash: user.passwordHash,
-    emailVerificationTokenHash,
-    emailVerificationTokenExpiresAt,
-  };
-}
-
-function isAuthSession(value: unknown): value is AuthSession {
-  if (!value || typeof value !== "object") return false;
-  const session = value as Partial<AuthSession>;
-  return (
-    typeof session.id === "string" &&
-    typeof session.userId === "string" &&
-    typeof session.tokenHash === "string" &&
-    typeof session.createdAt === "string" &&
-    typeof session.expiresAt === "string" &&
-    (session.revokedAt === null || typeof session.revokedAt === "string") &&
-    typeof session.lastSeenAt === "string"
-  );
 }

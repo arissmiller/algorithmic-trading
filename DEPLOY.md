@@ -152,8 +152,8 @@ Set these in Railway for each service.
 | Variable | Value |
 |---|---|
 | `ALLOWED_ORIGINS` | URL of deployed frontend |
+| `DATABASE_URL` | PostgreSQL connection string used for auth users/sessions |
 | `AUTH_TOKEN_TTL_SECONDS` | Session token lifespan in seconds (default `2592000`) |
-| `AUTH_STATE_FILE` | Optional custom path for auth state file |
 | `EMAIL_VERIFICATION_REQUIRED` | `true` to require verification before login |
 | `EMAIL_VERIFICATION_TOKEN_TTL_SECONDS` | Verification token TTL (default `86400`) |
 | `EMAIL_VERIFICATION_BASE_URL` | Frontend base URL used for verification links |
@@ -183,9 +183,18 @@ Set these in Railway for each service.
 
 ### Deploy
 
-Push to `main` — the workflow `.github/workflows/deploy-railway.yml` should deploy all four services in parallel.
+Staging deploys automatically from GitHub:
 
-You can also trigger a manual deploy from the Actions tab.
+1. Push to `main`
+2. GitHub Actions deploys `frontend` and `data-service` to Railway `staging`
+
+Production deploys are manual only:
+
+1. Open Actions → `Deploy to Railway`
+2. Run workflow
+3. Provide `git_ref` (branch/tag/SHA)
+4. Type `DEPLOY_PRODUCTION` in `confirm_production`
+5. The workflow deploys `frontend` and `data-service` to Railway `production`
 
 ### Service names
 
@@ -198,13 +207,26 @@ The workflow uses:
 
 If your Railway services use different names, update the `--service` flags in `.github/workflows/deploy-railway.yml`.
 
+### Railway environments for CI
+
+Ensure both Railway environments exist and are configured:
+
+- `staging`
+- `production`
+
+The GitHub workflow deploys to these explicit Railway environments:
+
+- Push to `main` -> `--environment staging`
+- Manual dispatch -> `--environment production`
+
+If/when `auth-service` and `dispatch-service` are added to these environments, extend the matrix in `.github/workflows/deploy-railway.yml`.
+
 ### Persistence notes
 
 Railway has an ephemeral filesystem:
 
 - `data-service/bot-state.json` is lost on redeploy.
 - `data-service/watchlist-state.json` is lost on redeploy.
-- `auth-service/auth-state.json` is lost on redeploy.
 - `dispatch-service/dispatch-state.json` is lost on redeploy.
 
 For production durability, move bot/auth/dispatch state to persistent storage (for example PostgreSQL) and optionally use Redis for cache/session layers.

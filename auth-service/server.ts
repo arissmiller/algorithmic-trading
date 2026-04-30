@@ -24,11 +24,14 @@ const AUTH_EXPOSE_VERIFICATION_TOKEN = parseBooleanEnv(
   "AUTH_EXPOSE_VERIFICATION_TOKEN",
   EMAIL_VERIFICATION_LOG_ONLY_MODE && process.env.NODE_ENV !== "production"
 );
-const STATE_FILE =
-  process.env.AUTH_STATE_FILE ?? new URL("./auth-state.json", import.meta.url).pathname;
+const DATABASE_URL = trimToNull(process.env.DATABASE_URL);
+
+if (!DATABASE_URL) {
+  throw new Error("DATABASE_URL is required for auth-service");
+}
 
 const authCore = new AuthCore({
-  statePath: STATE_FILE,
+  databaseUrl: DATABASE_URL,
   tokenTtlSeconds: TOKEN_TTL_SECONDS,
   emailVerificationRequired: EMAIL_VERIFICATION_REQUIRED,
   emailVerificationTokenTtlSeconds: EMAIL_VERIFICATION_TOKEN_TTL_SECONDS,
