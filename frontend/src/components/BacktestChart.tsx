@@ -20,6 +20,7 @@ interface Props {
 }
 
 const toTime = (t: string) => Math.floor(new Date(t).getTime() / 1000) as Time;
+const toDateKey = (t: string) => t.split("T")[0];
 
 export default function BacktestChart({
   bars,
@@ -94,11 +95,25 @@ export default function BacktestChart({
       return;
     }
 
+    // Build a lookup from YYYY-MM-DD → actual bar Unix timestamp so that
+    // markers align with bars even when bar timestamps carry an intraday
+    // offset (e.g. crypto bars are often timestamped at 08:00 UTC rather
+    // than midnight, while trade dates are stored as date-only strings).
+    const barTimeByDate = new Map<string, Time>();
+    for (const b of bars) {
+      const dateKey = toDateKey(b.t);
+      if (!barTimeByDate.has(dateKey)) {
+        barTimeByDate.set(dateKey, toTime(b.t));
+      }
+    }
+    const resolveTime = (date: string): Time =>
+      barTimeByDate.get(toDateKey(date)) ?? toTime(date);
+
     const markers = [
       ...scaleInTrades.map(
         (t) =>
           ({
-            time: toTime(t.date),
+            time: resolveTime(t.date),
             position: "belowBar" as SeriesMarker<Time>["position"],
             color: "#26a69a",
             shape: "arrowUp" as SeriesMarker<Time>["shape"],
@@ -108,7 +123,7 @@ export default function BacktestChart({
       ...scaleOutTrades.map(
         (t) =>
           ({
-            time: toTime(t.date),
+            time: resolveTime(t.date),
             position: "aboveBar" as SeriesMarker<Time>["position"],
             color: "#ef5350",
             shape: "arrowDown" as SeriesMarker<Time>["shape"],
@@ -120,7 +135,7 @@ export default function BacktestChart({
 
     markersRef.current.setMarkers(markers);
     chartRef.current?.timeScale().fitContent();
-  }, [scaleInTrades, scaleOutTrades]);
+  }, [scaleInTrades, scaleOutTrades, bars]);
 
   return <div ref={containerRef} className="h-full w-full" />;
 }
