@@ -13,6 +13,11 @@ export interface SmsMessage {
   body: string;
 }
 
+export interface TelegramMessage {
+  chatId: string;
+  body: string;
+}
+
 export interface DeliveryResponse {
   sent: boolean;
   skipped: boolean;
@@ -37,24 +42,34 @@ interface TwilioConfig {
   fromPhoneE164: string;
 }
 
+interface TelegramConfig {
+  botToken: string;
+}
+
 interface DispatchDeliveryInput {
   smtpConfig: SmtpConfig | null;
   twilioConfig: TwilioConfig | null;
+  telegramConfig: TelegramConfig | null;
   emailLogOnlyMode: boolean;
   smsLogOnlyMode: boolean;
+  telegramLogOnlyMode: boolean;
 }
 
 export class DispatchDelivery {
   private smtpConfig: SmtpConfig | null;
   private twilioConfig: TwilioConfig | null;
+  private telegramConfig: TelegramConfig | null;
   private emailLogOnlyMode: boolean;
   private smsLogOnlyMode: boolean;
+  private telegramLogOnlyMode: boolean;
 
   constructor(input: DispatchDeliveryInput) {
     this.smtpConfig = input.smtpConfig;
     this.twilioConfig = input.twilioConfig;
+    this.telegramConfig = input.telegramConfig;
     this.emailLogOnlyMode = input.emailLogOnlyMode;
     this.smsLogOnlyMode = input.smsLogOnlyMode;
+    this.telegramLogOnlyMode = input.telegramLogOnlyMode;
   }
 
   async sendEmail(message: EmailMessage): Promise<DeliveryResponse> {
@@ -214,6 +229,94 @@ export class DispatchDelivery {
     }
   }
 
+  async sendTelegram(message: TelegramMessage): Promise<DeliveryResponse> {
+    if (this.telegramLogOnlyMode) {
+      console.log(
+        [
+          "[dispatch-telegram] log-only message",
+          `chat_id=${message.chatId}`,
+          "--- body ---",
+          message.body,
+        ].join("\n")
+      );
+
+      return {
+        sent: true,
+        skipped: false,
+        error: null,
+        providerMessageId: null,
+      };
+    }
+
+    if (!this.telegramConfig) {
+      console.log("[dispatch-telegram] skipped: Telegram is not configured");
+      return {
+        sent: false,
+        skipped: true,
+        error: "Telegram is not configured",
+        providerMessageId: null,
+      };
+    }
+
+    try {
+      const response = await fetch(
+        `https://api.telegram.org/bot${this.telegramConfig.botToken}/sendMessage`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "application/json",
+          },
+          body: JSON.stringify({
+            chat_id: message.chatId,
+            text: message.body,
+            disable_web_page_preview: true,
+          }),
+        }
+      );
+
+      const payload = (await response.json().catch(() => null)) as
+        | {
+            ok?: boolean;
+            description?: string;
+            result?: {
+              message_id?: number;
+            };
+          }
+        | null;
+
+      if (!response.ok || payload?.ok === false) {
+        const detail =
+          payload?.description ??
+          (typeof payload === "object" ? JSON.stringify(payload) : null);
+        const suffix = detail ? `: ${detail}` : "";
+        return {
+          sent: false,
+          skipped: false,
+          error: `Telegram returned ${response.status}${suffix}`,
+          providerMessageId: null,
+        };
+      }
+
+      return {
+        sent: true,
+        skipped: false,
+        error: null,
+        providerMessageId:
+          payload?.result?.message_id != null
+            ? String(payload.result.message_id)
+            : null,
+      };
+    } catch (err) {
+      return {
+        sent: false,
+        skipped: false,
+        error: err instanceof Error ? err.message : String(err),
+        providerMessageId: null,
+      };
+    }
+  }
+
   private formatEmailRecipient(email: string, name: string | null): string {
     if (!name) {
       return email;
@@ -264,6 +367,17 @@ export function readTwilioConfigFromEnv(): TwilioConfig | null {
     accountSid,
     authToken,
     fromPhoneE164,
+  };
+}
+
+export function readTelegramConfigFromEnv(): TelegramConfig | null {
+  const botToken = trimToNull(process.env.DISPATCH_TELEGRAM_BOT_TOKEN);
+  if (!botToken) {
+    return null;
+  }
+
+  return {
+    botToken,
   };
 }
 

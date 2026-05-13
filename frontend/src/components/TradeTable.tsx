@@ -28,6 +28,7 @@ export default function TradeTable({
             <th className={`${rowPadding} text-right`}>{isScaleOut ? "Proceeds" : "Amount"}</th>
             <th className={`${rowPadding} text-right`}>Price</th>
             <th className={`${rowPadding} text-right`}>Shares</th>
+            <th className={`${rowPadding} text-right`}>Position</th>
             {showTaxColumns && (
               <>
                 <th className={`${rowPadding} text-right`}>Realized P/L</th>
@@ -51,7 +52,10 @@ export default function TradeTable({
                 ${t.price.toFixed(2)}
               </td>
               <td className={`${rowPadding} text-right tabular-nums text-text-primary`}>
-                {t.shares.toFixed(4)}
+                {t.shares.toLocaleString()}
+              </td>
+              <td className={`${rowPadding} text-right tabular-nums ${isScaleOut ? "text-sell" : "text-buy"}`}>
+                {t.sharesHeld.toLocaleString()}
               </td>
               {showTaxColumns && (
                 <>
@@ -93,9 +97,12 @@ export default function TradeTable({
             </td>
             <td className={`${rowPadding} text-right text-text-secondary`}>avg</td>
             <td className={`${rowPadding} text-right tabular-nums`}>
-              {totalShares.toFixed(4)}
+              {totalShares.toLocaleString()}
             </td>
-            <td colSpan={showTaxColumns ? 5 : 2} />
+            <td className={`${rowPadding} text-right tabular-nums text-text-secondary`}>
+              {trades.length > 0 ? trades[trades.length - 1].sharesHeld.toLocaleString() : "—"}
+            </td>
+            <td colSpan={showTaxColumns ? 4 : 1} />
           </tr>
         </tfoot>
       </table>

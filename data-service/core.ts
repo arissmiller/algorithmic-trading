@@ -6,6 +6,8 @@ const RANGE_MAP: Record<string, string> = {
   "5y": "5y",
   max: "max",
 };
+const INTRADAY_DAY_CACHE_PREFIX = "day:";
+const DAY_MS = 86_400_000;
 const ALPACA_DATA_BASE_URL =
   process.env.ALPACA_DATA_BASE_URL ?? "https://data.alpaca.markets/v2";
 const ALPACA_CRYPTO_DATA_BASE_URL = normalizeBaseUrl(
@@ -37,10 +39,14 @@ export class ApiHttpError extends Error {
   }
 }
 
+export type MarketTimeframe = "1Day" | "1Hour" | "15Min";
+
 export async function fetchMarketBars(input: {
   symbol: string;
   range: string | null;
-  timeframe?: "1Day" | "1Hour";
+  timeframe?: MarketTimeframe;
+  startDate?: string | null;
+  endDate?: string | null;
 }): Promise<{ symbol: string; bars: ApiBar[] }> {
   const symbol = normalizeSymbol(input.symbol);
   if (!symbol) {
@@ -48,8 +54,68 @@ export async function fetchMarketBars(input: {
   }
 
   const timeframe = input.timeframe ?? "1Day";
-  const range = RANGE_MAP[input.range ?? "2y"] ?? "2y";
   const cacheSymbol = isCryptoSymbol(symbol) ? normalizeCryptoSymbol(symbol) : symbol;
+
+  if (timeframe === "15Min") {
+    const dayWindow = normalizeDayWindow(input.startDate, input.endDate);
+    const dayKeys = enumerateDayKeys(dayWindow.startDate, dayWindow.endDate);
+    if (dayKeys.length === 0) {
+      throw new ApiHttpError(400, "No days selected for 15Min request");
+    }
+
+    if (!hasAlpacaCredentials()) {
+      throw new ApiHttpError(
+        400,
+        "Missing Alpaca API credentials. Set APCA_API_KEY_ID and APCA_API_SECRET_KEY."
+      );
+    }
+
+    const allBars: ApiBar[] = [];
+    let responseSymbol = cacheSymbol;
+
+    for (const dayKey of dayKeys) {
+      const dayCacheRange = `${INTRADAY_DAY_CACHE_PREFIX}${dayKey}`;
+      const cachedDay = await getCachedBars({
+        symbol: cacheSymbol,
+        range: dayCacheRange,
+        timeframe,
+      });
+      if (cachedDay) {
+        allBars.push(...cachedDay.bars);
+        continue;
+      }
+
+      const dayWindowUtc = dayKeyToUtcWindow(dayKey);
+      const freshDay = isCryptoSymbol(symbol)
+        ? await fetchCryptoFromAlpaca(symbol, "2y", timeframe, {
+            window: dayWindowUtc,
+            allowEmpty: true,
+          })
+        : await fetchFromAlpaca(symbol, "2y", timeframe, {
+            window: dayWindowUtc,
+            allowEmpty: true,
+          });
+      responseSymbol = freshDay.symbol;
+
+      await upsertCachedBars({
+        symbol: cacheSymbol,
+        range: dayCacheRange,
+        timeframe,
+        bars: freshDay.bars,
+      });
+
+      allBars.push(...freshDay.bars);
+    }
+
+    const dedupedBars = dedupeAndSortBars(allBars);
+    if (dedupedBars.length === 0) {
+      throw new ApiHttpError(404, "No data returned");
+    }
+
+    return { symbol: responseSymbol, bars: dedupedBars };
+  }
+
+  const range = RANGE_MAP[input.range ?? "2y"] ?? "2y";
 
   const cached = await getCachedBars({
     symbol: cacheSymbol,
@@ -175,10 +241,14 @@ export async function fetchAlpacaAccountSnapshot(
 async function fetchFromAlpaca(
   symbol: string,
   range: string,
-  timeframe: "1Day" | "1Hour" = "1Day"
+  timeframe: MarketTimeframe = "1Day",
+  options?: {
+    window?: { start: string; end: string };
+    allowEmpty?: boolean;
+  }
 ): Promise<{ symbol: string; bars: ApiBar[] }> {
   const requestSymbol = resolveAlpacaSymbol(symbol);
-  const window = getTimeWindow(range, timeframe);
+  const window = options?.window ?? getTimeWindow(range, timeframe);
   let pageToken: string | null = null;
   const allBars: AlpacaBar[] = [];
 
@@ -260,7 +330,7 @@ async function fetchFromAlpaca(
       v: Number.isFinite(bar.v) ? bar.v : null,
     }));
 
-  if (bars.length === 0) {
+  if (bars.length === 0 && !options?.allowEmpty) {
     throw new ApiHttpError(404, "No data returned");
   }
 
@@ -270,10 +340,14 @@ async function fetchFromAlpaca(
 async function fetchCryptoFromAlpaca(
   symbol: string,
   range: string,
-  timeframe: "1Day" | "1Hour" = "1Day"
+  timeframe: MarketTimeframe = "1Day",
+  options?: {
+    window?: { start: string; end: string };
+    allowEmpty?: boolean;
+  }
 ): Promise<{ symbol: string; bars: ApiBar[] }> {
   const requestSymbol = normalizeCryptoSymbol(symbol);
-  const window = getTimeWindow(range, timeframe);
+  const window = options?.window ?? getTimeWindow(range, timeframe);
   let pageToken: string | null = null;
   const allBars: AlpacaBar[] = [];
 
@@ -350,7 +424,7 @@ async function fetchCryptoFromAlpaca(
       v: Number.isFinite(bar.v) ? bar.v : null,
     }));
 
-  if (bars.length === 0) {
+  if (bars.length === 0 && !options?.allowEmpty) {
     throw new ApiHttpError(404, "No data returned");
   }
 
@@ -474,12 +548,17 @@ async function throwAlpacaTradingError(
   );
 }
 
-function getTimeWindow(range: string, timeframe: "1Day" | "1Hour" = "1Day"): { start: string; end: string } {
+function getTimeWindow(
+  range: string,
+  timeframe: MarketTimeframe = "1Day"
+): { start: string; end: string } {
   const now = new Date();
-  // For hourly bars, 30 days gives ~720 bars — plenty for all signal warmup periods.
-  const start = timeframe === "1Hour"
-    ? new Date(now.getTime() - 365 * 86_400_000)
-    : (getCutoffDate(range) ?? new Date(Date.UTC(2000, 0, 1)));
+  // 15-minute bars are fetched with explicit day windows in fetchMarketBars().
+  // Keep a small fallback here for non-windowed requests.
+  const start =
+    timeframe === "15Min"
+      ? new Date(now.getTime() - 45 * DAY_MS)
+      : getCutoffDate(range) ?? new Date(Date.UTC(2000, 0, 1));
   return {
     start: start.toISOString(),
     end: now.toISOString(),
@@ -513,6 +592,77 @@ function getCutoffDate(range: string): Date | null {
   }
   const now = new Date();
   return new Date(Date.UTC(now.getUTCFullYear() - yearsBack, now.getUTCMonth(), now.getUTCDate()));
+}
+
+function normalizeDayWindow(
+  startDateRaw: string | null | undefined,
+  endDateRaw: string | null | undefined
+): { startDate: string; endDate: string } {
+  const startDate = normalizeIsoDay(startDateRaw);
+  const endDate = normalizeIsoDay(endDateRaw);
+
+  if (!startDate || !endDate) {
+    throw new ApiHttpError(
+      400,
+      "15Min requests require startDate and endDate query params in YYYY-MM-DD format"
+    );
+  }
+
+  if (endDate < startDate) {
+    throw new ApiHttpError(400, "endDate must be on or after startDate");
+  }
+
+  const dayCount = enumerateDayKeys(startDate, endDate).length;
+  if (dayCount > 120) {
+    throw new ApiHttpError(
+      400,
+      "15Min requests currently support up to 120 days per call"
+    );
+  }
+
+  return { startDate, endDate };
+}
+
+function normalizeIsoDay(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const trimmed = value.trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return null;
+  const ts = Date.parse(`${trimmed}T00:00:00Z`);
+  if (!Number.isFinite(ts)) return null;
+  return trimmed;
+}
+
+function enumerateDayKeys(startDate: string, endDate: string): string[] {
+  const out: string[] = [];
+  const startTs = Date.parse(`${startDate}T00:00:00Z`);
+  const endTs = Date.parse(`${endDate}T00:00:00Z`);
+  if (!Number.isFinite(startTs) || !Number.isFinite(endTs) || endTs < startTs) {
+    return out;
+  }
+
+  for (let ts = startTs; ts <= endTs; ts += DAY_MS) {
+    out.push(new Date(ts).toISOString().slice(0, 10));
+  }
+
+  return out;
+}
+
+function dayKeyToUtcWindow(dayKey: string): { start: string; end: string } {
+  const startTs = Date.parse(`${dayKey}T00:00:00Z`);
+  const endTs = startTs + DAY_MS;
+  return {
+    start: new Date(startTs).toISOString(),
+    end: new Date(endTs).toISOString(),
+  };
+}
+
+function dedupeAndSortBars(bars: ApiBar[]): ApiBar[] {
+  const byTime = new Map<string, ApiBar>();
+  for (const bar of bars) {
+    if (!bar || typeof bar.t !== "string") continue;
+    byTime.set(bar.t, bar);
+  }
+  return Array.from(byTime.values()).sort((a, b) => a.t.localeCompare(b.t));
 }
 
 function normalizeSymbol(symbol: string): string {

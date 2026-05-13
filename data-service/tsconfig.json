@@ -12,10 +12,15 @@
   "include": [
     "server.ts",
     "core.ts",
-    "bot.ts",
+    "config.ts",
+    "httpUtils.ts",
+    "botEngine.ts",
     "botSignals.ts",
+    "botTuning.ts",
+    "userApiConnections.ts",
     "watchlistExecution.ts",
     "signalDispatch.ts",
+    "routes/**/*.ts",
     "api/**/*.ts"
   ]
 }

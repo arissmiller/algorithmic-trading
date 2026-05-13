@@ -9,6 +9,7 @@ Expose a stable contract to the frontend while isolating provider details.
 - Frontend contract:
 	- `/api/health`
 	- `/api/bars?symbol=...&range=...`
+	- `/api/bars?symbol=...&timeframe=15Min&startDate=YYYY-MM-DD&endDate=YYYY-MM-DD`
 	- `/api/alpaca/account` (read-only snapshot)
 	- `/api/bot/*` (protected bot + watchlist execution routes)
 - Provider logic: Alpaca-only market data + normalization and error mapping
@@ -17,19 +18,24 @@ Expose a stable contract to the frontend while isolating provider details.
 
 - Local dev proxy: `server.ts`
 - Serverless (Vercel): `api/health.ts`, `api/bars.ts`, `api/alpaca/account.ts`
-- Bot execution engine: `bot.ts`
-- Multi-user watchlist signal engine: `watchlistExecution.ts`
+- Bot execution engine: `botEngine.ts`
+- Watchlist signal engine: `watchlistExecution.ts`
 - Dispatch integration layer: `signalDispatch.ts`
 - Optional bars cache adapter: `barCache.ts` (PostgreSQL)
 
 All entrypoints use `core.ts` for market/account behavior consistency.
 
-## Bot and Watchlist Routes (protected)
+## Bot and Watchlist Routes
+
+Bot engine control-plane routes are disabled by default. Set `ENABLE_BOT_ENGINE=true` to enable:
 
 - `GET /api/bot/list`
 - `POST /api/bot/start`
 - `POST /api/bot/stop/:id`
 - `DELETE /api/bot/:id`
+
+Watchlist routes remain enabled:
+
 - `GET /api/bot/watchlists`
 - `PUT /api/bot/watchlists`
 - `PUT /api/bot/watchlists/:userId`
@@ -37,11 +43,44 @@ All entrypoints use `core.ts` for market/account behavior consistency.
 - `POST /api/bot/watchlists/scan?timeframe=1Hour|1Day`
 - `GET /api/bot/watchlist-signals?limit=100`
 
-Watchlist endpoint auth behavior:
+## Bot Campaign Parameters
 
-- Shared-secret caller (`FRONTEND_SHARED_SECRET`) is treated as admin and can access all watchlists/signals.
-- Bearer auth caller is validated against the auth service (`GET /api/auth/me`) and is scoped to its own user ID (`userId` or `${userId}:...`).
-- `PUT /api/bot/watchlists` (bulk replace) is admin-only.
+`POST /api/bot/start` accepts campaign-oriented inputs. The backend expands these into per-symbol bots and applies all strategy tuning from backend modules.
+
+- `profile`:
+  - One of:
+    - `long_term_scale_in`
+    - `short_term_scale_in`
+    - `long_term_selloff`
+    - `short_term_selloff`
+    - `crash_buy_in`
+    - `crash_selloff_detected`
+- `startDate`:
+  - Campaign start date (`YYYY-MM-DD`).
+- `durationDays`:
+  - Campaign duration; backend derives cadence from this duration.
+- `symbol` or `symbols`:
+  - Single symbol or list; when `symbols` is provided, one bot is started per symbol.
+- `allocationMode`, `allocationPct`, `allocationFixed`:
+  - Capital deployment controls.
+- Validation:
+  - `startDate` must be `YYYY-MM-DD`.
+  - `durationDays` must be a positive integer.
+  - `allocationPct` must be `0..100`.
+  - `allocationFixed` must be `>= 0`.
+
+All signal mixes, thresholds, cadence bounds, and history-based weighting heuristics are backend-owned in:
+
+- `botTuning.ts`
+- `botEngine.ts`
+
+Frontend sends only high-level campaign parameters and a profile key.
+
+Current watchlist behavior:
+
+- Operator-managed mode (no external authentication service dependency).
+- All callers share the same global watchlists and signal stream.
+- API connection settings are stored under one operator identity (`DEFAULT_OPERATOR_USER_ID`, default `operator`).
 
 ## Why this split helps
 
@@ -59,23 +98,19 @@ Before exposing this service publicly, set these Railway environment variables:
 - `REQUIRE_ORIGIN_HEADER`:
 	- Defaults to `true` when `ALLOWED_ORIGINS` is set.
 	- When enabled, requests without an `Origin` header are rejected on protected routes.
-- `FRONTEND_SHARED_SECRET`:
-	- Optional but recommended for stronger protection.
-	- If set, protected routes require either `Authorization: Bearer <secret>` or `x-frontend-secret: <secret>`.
-- `AUTH_API_BASE_URL`:
-	- Base URL for the auth service used to validate bearer sessions for watchlist routes.
-	- Example: `https://auth-service.up.railway.app`
-	- In pure local non-Railway development, defaults to `http://127.0.0.1:3002` when unset.
-	- When running with Railway environment variables, this must be set explicitly to the auth-service public URL.
-- `AUTH_API_TIMEOUT_MS`:
-	- Timeout in milliseconds for auth session validation calls.
-	- Default: `5000`
 - `FRONTEND_SHARED_SECRET_HEADER`:
-	- Optional custom header name for the shared secret.
+	- Optional custom header name allowed by CORS.
 	- Default: `x-frontend-secret`
-- `AUTH_EXEMPT_PATHS`:
-	- Optional comma-separated route list that should skip auth/origin checks.
+- `DEFAULT_OPERATOR_USER_ID`:
+	- Optional logical user ID used for shared API connection credentials.
+	- Default: `operator`
+- `ENABLE_BOT_ENGINE`:
+	- Set to `true` to enable `/api/bot/list`, `/api/bot/start`, `/api/bot/stop/:id`, and `/api/bot/:id`.
+	- Default: `false` (returns 404 for bot engine control-plane routes).
+- `ORIGIN_EXEMPT_PATHS`:
+	- Optional comma-separated route list that should skip origin checks.
 	- Default: `/api/health`
+	- Backward-compatible alias: `AUTH_EXEMPT_PATHS`
 - `RATE_LIMIT_WINDOW_MS`:
 	- Rate limit window in milliseconds.
 	- Default: `60000`
@@ -114,6 +149,9 @@ Before exposing this service publicly, set these Railway environment variables:
 - `BAR_CACHE_TTL_1_HOUR_MS`:
 	- Optional cache TTL for hourly (`1Hour`) bars.
 	- Default: `1800000` (30 minutes)
+- `BAR_CACHE_TTL_15_MIN_MS`:
+	- Optional cache TTL for 15-minute (`15Min`) day-sliced bars.
+	- Default: `86400000` (24 hours)
 - `SIGNAL_DISPATCH_URL`:
 	- Optional HTTP endpoint to receive generated watchlist signals.
 	- Example: `https://dispatch-service.up.railway.app/api/dispatch/signal`
@@ -133,18 +171,14 @@ Before exposing this service publicly, set these Railway environment variables:
 Notes:
 
 - CORS controls browser access, not true authentication. Non-browser clients can still call your API directly.
-- Shared-secret auth only stays secret if your frontend calls this API from server-side code.
-- If your frontend is fully static/browser-only, no client-side secret is truly private.
 - `^GSPC` requests are mapped to `SPY` for Alpaca bars.
+- `15Min` requests are intended for intraday/day-trading backtests and require `startDate` + `endDate`.
+- `15Min` bars are fetched and cached per day (`symbol + YYYY-MM-DD + timeframe`) so repeated tests on the same stocks are much faster.
 - `/api/alpaca/*` endpoints remain read-only by design.
-- `/api/bot/*` endpoints are protected control-plane routes and can place Alpaca orders for running bots.
+- `/api/bot/*` endpoints are operator control-plane routes and can place Alpaca orders for running bots.
 
 Example frontend request (server-side runtime):
 
 ```ts
-await fetch(`${process.env.DATA_SERVICE_URL}/api/bars?symbol=AAPL&range=2y`, {
-  headers: {
-    Authorization: `Bearer ${process.env.FRONTEND_SHARED_SECRET}`,
-  },
-});
+await fetch(`${process.env.DATA_SERVICE_URL}/api/bars?symbol=AAPL&range=2y`);
 ```

@@ -36,12 +36,12 @@ export default function WalkForwardResultsTable({ runs, selectedIndex, onSelect 
         </thead>
         <tbody>
           {runs.map((run, idx) => {
-            const inComp = run.result.scaleIn.comparison;
-            const outComp = run.result.scaleOut.comparison;
-            const inPos = inComp.smartVsLumpPct >= 0;
-            const inPosRandom = inComp.smartVsRandomPct >= 0;
-            const outPos = outComp.smartVsLumpPct >= 0;
-            const outPosRandom = outComp.smartVsRandomPct >= 0;
+            const inComp = run.result.scaleIn?.comparison;
+            const outComp = run.result.scaleOut?.comparison;
+            const inPos = (inComp?.smartVsLumpPct ?? 0) >= 0;
+            const inPosRandom = (inComp?.smartVsRandomPct ?? 0) >= 0;
+            const outPos = (outComp?.smartVsLumpPct ?? 0) >= 0;
+            const outPosRandom = (outComp?.smartVsRandomPct ?? 0) >= 0;
             const selected = idx === selectedIndex;
             return (
               <tr
@@ -53,29 +53,29 @@ export default function WalkForwardResultsTable({ runs, selectedIndex, onSelect 
               >
                 <td className="px-3 py-2 text-text-secondary">{run.runNumber}</td>
                 <td className="px-3 py-2 font-mono text-text-primary">{run.startDate}</td>
-                <td className="px-3 py-2 text-right tabular-nums text-buy">${fmtUsd(inComp.smartScale)}</td>
-                <td className="px-3 py-2 text-right tabular-nums text-text-primary">${fmtUsd(inComp.lumpSum)}</td>
-                <td className="px-3 py-2 text-right tabular-nums text-text-primary">${fmtUsd(inComp.randomScale)}</td>
-                <td className="px-3 py-2 text-right tabular-nums text-text-primary">${fmtUsd(inComp.intervalScale)}</td>
+                <td className="px-3 py-2 text-right tabular-nums text-buy">${fmtUsd(inComp?.smartScale ?? 0)}</td>
+                <td className="px-3 py-2 text-right tabular-nums text-text-primary">${fmtUsd(inComp?.lumpSum ?? 0)}</td>
+                <td className="px-3 py-2 text-right tabular-nums text-text-primary">${fmtUsd(inComp?.randomScale ?? 0)}</td>
+                <td className="px-3 py-2 text-right tabular-nums text-text-primary">${fmtUsd(inComp?.intervalScale ?? 0)}</td>
                 <td className={`px-3 py-2 text-right tabular-nums ${inPos ? "text-buy" : "text-sell"}`}>
-                  {inComp.smartVsLumpPct >= 0 ? "+" : ""}
-                  {fmtPct(inComp.smartVsLumpPct)}%
+                  {(inComp?.smartVsLumpPct ?? 0) >= 0 ? "+" : ""}
+                  {fmtPct(inComp?.smartVsLumpPct ?? 0)}%
                 </td>
                 <td className={`px-3 py-2 text-right tabular-nums ${inPosRandom ? "text-buy" : "text-sell"}`}>
-                  {inComp.smartVsRandomPct >= 0 ? "+" : ""}
-                  {fmtPct(inComp.smartVsRandomPct)}%
+                  {(inComp?.smartVsRandomPct ?? 0) >= 0 ? "+" : ""}
+                  {fmtPct(inComp?.smartVsRandomPct ?? 0)}%
                 </td>
-                <td className="px-3 py-2 text-right tabular-nums text-sell">${fmtUsd(outComp.smartScale)}</td>
-                <td className="px-3 py-2 text-right tabular-nums text-text-primary">${fmtUsd(outComp.lumpSum)}</td>
-                <td className="px-3 py-2 text-right tabular-nums text-text-primary">${fmtUsd(outComp.randomScale)}</td>
-                <td className="px-3 py-2 text-right tabular-nums text-text-primary">${fmtUsd(outComp.intervalScale)}</td>
+                <td className="px-3 py-2 text-right tabular-nums text-sell">${fmtUsd(outComp?.smartScale ?? 0)}</td>
+                <td className="px-3 py-2 text-right tabular-nums text-text-primary">${fmtUsd(outComp?.lumpSum ?? 0)}</td>
+                <td className="px-3 py-2 text-right tabular-nums text-text-primary">${fmtUsd(outComp?.randomScale ?? 0)}</td>
+                <td className="px-3 py-2 text-right tabular-nums text-text-primary">${fmtUsd(outComp?.intervalScale ?? 0)}</td>
                 <td className={`px-3 py-2 text-right tabular-nums ${outPos ? "text-buy" : "text-sell"}`}>
-                  {outComp.smartVsLumpPct >= 0 ? "+" : ""}
-                  {fmtPct(outComp.smartVsLumpPct)}%
+                  {(outComp?.smartVsLumpPct ?? 0) >= 0 ? "+" : ""}
+                  {fmtPct(outComp?.smartVsLumpPct ?? 0)}%
                 </td>
                 <td className={`px-3 py-2 text-right tabular-nums ${outPosRandom ? "text-buy" : "text-sell"}`}>
-                  {outComp.smartVsRandomPct >= 0 ? "+" : ""}
-                  {fmtPct(outComp.smartVsRandomPct)}%
+                  {(outComp?.smartVsRandomPct ?? 0) >= 0 ? "+" : ""}
+                  {fmtPct(outComp?.smartVsRandomPct ?? 0)}%
                 </td>
               </tr>
             );
@@ -139,10 +139,10 @@ function summarizeAverageImprovement(runs: WalkForwardRunResult[]) {
   let outVsRandom = 0;
 
   for (const run of runs) {
-    inVsLump += run.result.scaleIn.comparison.smartVsLumpPct;
-    inVsRandom += run.result.scaleIn.comparison.smartVsRandomPct;
-    outVsLump += run.result.scaleOut.comparison.smartVsLumpPct;
-    outVsRandom += run.result.scaleOut.comparison.smartVsRandomPct;
+    inVsLump += run.result.scaleIn?.comparison.smartVsLumpPct ?? 0;
+    inVsRandom += run.result.scaleIn?.comparison.smartVsRandomPct ?? 0;
+    outVsLump += run.result.scaleOut?.comparison.smartVsLumpPct ?? 0;
+    outVsRandom += run.result.scaleOut?.comparison.smartVsRandomPct ?? 0;
   }
 
   const n = runs.length;

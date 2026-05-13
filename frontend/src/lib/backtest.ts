@@ -19,6 +19,7 @@ export interface BacktestTrade {
   price: number;
   amountUsd: number;
   shares: number;
+  sharesHeld: number;
   signalScore: number;
   rationale: string;
   side: "buy" | "sell";
@@ -67,8 +68,9 @@ export interface DirectionalBacktestResult {
 
 export interface BacktestResult {
   symbol: string;
-  scaleIn: DirectionalBacktestResult;
-  scaleOut: DirectionalBacktestResult;
+  phase?: "scale_in" | "scale_out";
+  scaleIn: DirectionalBacktestResult | null;
+  scaleOut: DirectionalBacktestResult | null;
   performance: StrategyPerformance;
   benchmark: BenchmarkPerformance | null;
 }
@@ -132,6 +134,7 @@ export interface BacktestConfig {
   scaleOutStartDate?: string;
   scaleInWindowDays: number;
   scaleOutWindowDays: number;
+  phase?: "scale_in" | "scale_out";
   cadenceDays: number;
   totalAmount: number;
   aggressiveness: number;
@@ -178,26 +181,72 @@ export function runBacktest(cfg: BacktestConfig): BacktestResult | null {
   const derivedScaleOutStartDate = addDaysIso(cfg.startDate, cfg.scaleInWindowDays);
   const scaleOutStartDate = normalizeIsoDate(cfg.scaleOutStartDate) ?? derivedScaleOutStartDate;
   const endDate = addDaysIso(scaleOutStartDate, cfg.scaleOutWindowDays);
-
-  const scaleIn = runDirectionalBacktest(
-    cfg,
-    "scale_in",
-    cfg.scaleInWindowDays,
-    scaleInStartDate
-  );
-  const scaleOut = runDirectionalBacktest(
-    cfg,
-    "scale_out",
-    cfg.scaleOutWindowDays,
-    scaleOutStartDate
-  );
-  if (!scaleIn || !scaleOut) return null;
-
-  const tax = computeTaxImpact(scaleIn.trades, scaleOut.trades, scaleIn.totalShares, {
+  const phase = cfg.phase;
+  const taxCfg = {
     accountType: cfg.accountType ?? "taxable",
     washSaleWindowDays: normalizeWashSaleWindow(cfg.washSaleWindowDays),
     applyWashSaleRule: cfg.applyWashSaleRule ?? !isLikelyCryptoSymbol(cfg.symbol),
-  });
+  };
+
+  if (phase === "scale_in") {
+    const scaleIn = runDirectionalBacktest(cfg, "scale_in", cfg.scaleInWindowDays, scaleInStartDate);
+    if (!scaleIn) return null;
+    const tax = computeTaxImpact(scaleIn.trades, [], 0, taxCfg);
+    const performance: StrategyPerformance = {
+      startDate: scaleInStartDate,
+      scaleOutStartDate: derivedScaleOutStartDate,
+      endDate: derivedScaleOutStartDate,
+      investedAmount: scaleIn.totalAmount,
+      proceeds: 0,
+      sharesBought: scaleIn.totalShares,
+      avgCost: scaleIn.avgExecutionPrice,
+      avgSalePrice: 0,
+      profitUsd: 0,
+      profitPct: 0,
+      returnComparison: buildSinglePhaseReturnComparison(scaleIn),
+      tax: tax.summary,
+    };
+    const benchmark = computeBenchmarkPerformance(
+      cfg.benchmarkBars ?? [], cfg.benchmarkSymbol ?? "^GSPC",
+      scaleInStartDate, derivedScaleOutStartDate, scaleIn.totalAmount
+    );
+    return { symbol: cfg.symbol, phase, scaleIn, scaleOut: null, performance, benchmark };
+  }
+
+  if (phase === "scale_out") {
+    const scaleOut = runDirectionalBacktest(cfg, "scale_out", cfg.scaleOutWindowDays, scaleOutStartDate);
+    if (!scaleOut) return null;
+    const tax = computeTaxImpact([], scaleOut.trades, 0, taxCfg);
+    const scaleOutWithTax: DirectionalBacktestResult = {
+      ...scaleOut,
+      trades: scaleOut.trades.map((trade, idx) => ({ ...trade, tax: tax.tradeTaxByIndex[idx] })),
+    };
+    const performance: StrategyPerformance = {
+      startDate: scaleOutStartDate,
+      scaleOutStartDate,
+      endDate,
+      investedAmount: 0,
+      proceeds: scaleOut.totalAmount,
+      sharesBought: 0,
+      avgCost: 0,
+      avgSalePrice: scaleOut.avgExecutionPrice,
+      profitUsd: 0,
+      profitPct: 0,
+      returnComparison: buildSinglePhaseReturnComparison(scaleOut),
+      tax: tax.summary,
+    };
+    const benchmark = computeBenchmarkPerformance(
+      cfg.benchmarkBars ?? [], cfg.benchmarkSymbol ?? "^GSPC",
+      scaleOutStartDate, endDate, scaleOut.totalAmount
+    );
+    return { symbol: cfg.symbol, phase, scaleIn: null, scaleOut: scaleOutWithTax, performance, benchmark };
+  }
+
+  const scaleIn = runDirectionalBacktest(cfg, "scale_in", cfg.scaleInWindowDays, scaleInStartDate);
+  const scaleOut = runDirectionalBacktest(cfg, "scale_out", cfg.scaleOutWindowDays, scaleOutStartDate);
+  if (!scaleIn || !scaleOut) return null;
+
+  const tax = computeTaxImpact(scaleIn.trades, scaleOut.trades, scaleIn.totalShares, taxCfg);
 
   const scaleOutWithTax: DirectionalBacktestResult = {
     ...scaleOut,
@@ -224,12 +273,7 @@ export function runBacktest(cfg: BacktestConfig): BacktestResult | null {
     avgSalePrice: scaleOut.avgExecutionPrice,
     profitUsd,
     profitPct,
-    returnComparison: buildReturnComparison(
-      investedAmount,
-      profitPct,
-      scaleIn,
-      scaleOut
-    ),
+    returnComparison: buildReturnComparison(investedAmount, profitPct, scaleIn, scaleOut),
     tax: tax.summary,
   };
 
@@ -241,13 +285,7 @@ export function runBacktest(cfg: BacktestConfig): BacktestResult | null {
     investedAmount
   );
 
-  return {
-    symbol: cfg.symbol,
-    scaleIn,
-    scaleOut: scaleOutWithTax,
-    performance,
-    benchmark,
-  };
+  return { symbol: cfg.symbol, scaleIn, scaleOut: scaleOutWithTax, performance, benchmark };
 }
 
 export function runWalkForwardBacktest(cfg: WalkForwardConfig): WalkForwardRunResult[] {
@@ -273,10 +311,10 @@ export function runWalkForwardBacktest(cfg: WalkForwardConfig): WalkForwardRunRe
 }
 
 export function summarizeWalkForwardRuns(runs: WalkForwardRunResult[]): WalkForwardSummary {
-  const inVsLump = runs.map((r) => r.result.scaleIn.comparison.smartVsLumpPct);
-  const inVsRandom = runs.map((r) => r.result.scaleIn.comparison.smartVsRandomPct);
-  const outVsLump = runs.map((r) => r.result.scaleOut.comparison.smartVsLumpPct);
-  const outVsRandom = runs.map((r) => r.result.scaleOut.comparison.smartVsRandomPct);
+  const inVsLump = runs.map((r) => r.result.scaleIn?.comparison.smartVsLumpPct ?? 0);
+  const inVsRandom = runs.map((r) => r.result.scaleIn?.comparison.smartVsRandomPct ?? 0);
+  const outVsLump = runs.map((r) => r.result.scaleOut?.comparison.smartVsLumpPct ?? 0);
+  const outVsRandom = runs.map((r) => r.result.scaleOut?.comparison.smartVsRandomPct ?? 0);
 
   return {
     runCount: runs.length,
@@ -315,7 +353,15 @@ function runDirectionalBacktest(
   if (smartSchedule.length === 0) return null;
 
   const friction = normalizeFriction(cfg.friction);
-  const smartTrades = matchScheduledTrades(cfg.bars, smartSchedule, direction, friction);
+
+  // For scale-out: derive starting whole-share count from position value at window's first bar.
+  let startShares = 0;
+  if (direction === "scale_out" && windowBars.length > 0) {
+    const startPrice = applyExecutionPrice(windowBars[0].c, "scale_out", friction);
+    startShares = startPrice > 0 ? Math.floor(cfg.totalAmount / startPrice) : 0;
+  }
+
+  const smartTrades = matchScheduledTrades(cfg.bars, smartSchedule, direction, friction, startShares);
   if (smartTrades.length === 0) return null;
 
   const smart = summariseTrades(smartTrades);
@@ -373,23 +419,61 @@ function matchScheduledTrades(
   bars: Bar[],
   schedule: ScheduledTrade[],
   direction: Direction,
-  friction: ExecutionFrictionConfig
+  friction: ExecutionFrictionConfig,
+  startShares = 0
 ): BacktestTrade[] {
   const trades: BacktestTrade[] = [];
-  for (const st of schedule) {
+  const isOut = direction === "scale_out";
+
+  // For scale-out: convert signal-weighted USD amounts into whole-share allocations so
+  // we're selling a fixed position (startShares) rather than a fixed dollar amount.
+  const totalScheduleUsd = schedule.reduce((s, st) => s + st.amountUsd, 0);
+  const sharesMode = isOut && startShares > 0 && totalScheduleUsd > 0;
+
+  let runningShares = startShares;
+  // Scale-in: carry unspent budget (from whole-share rounding) to the next tranche.
+  let budgetCarry = 0;
+
+  for (let i = 0; i < schedule.length; i++) {
+    const st = schedule[i];
     const targetTs = new Date(st.date).getTime();
     const bar = bars.find((b) => new Date(b.t).getTime() >= targetTs && b.c > 0);
     if (!bar) continue;
     const execPrice = applyExecutionPrice(bar.c, direction, friction);
     if (execPrice <= 0) continue;
+
+    let tradeShares: number;
+    let tradeAmountUsd: number;
+
+    if (sharesMode) {
+      // Last tranche gets all remaining shares to avoid rounding leakage.
+      const isLastScheduled = i === schedule.length - 1;
+      tradeShares = isLastScheduled
+        ? runningShares
+        : Math.floor((st.amountUsd / totalScheduleUsd) * startShares);
+      tradeAmountUsd = tradeShares * execPrice;
+    } else {
+      // Scale-in: buy whole shares only; carry unspent amount forward.
+      const plannedAmount = st.amountUsd + budgetCarry;
+      tradeShares = Math.floor(plannedAmount / execPrice);
+      tradeAmountUsd = tradeShares * execPrice;
+      budgetCarry = plannedAmount - tradeAmountUsd;
+      if (tradeShares < 1) continue; // can't afford even 1 share yet — carry forward
+    }
+
+    runningShares = isOut
+      ? Math.max(0, runningShares - tradeShares)
+      : runningShares + tradeShares;
+
     trades.push({
       date: bar.t,
       price: execPrice,
-      amountUsd: st.amountUsd,
-      shares: st.amountUsd / execPrice,
+      amountUsd: tradeAmountUsd,
+      shares: tradeShares,
+      sharesHeld: runningShares,
       signalScore: st.signalScore,
       rationale: st.rationale,
-      side: direction === "scale_out" ? "sell" : "buy",
+      side: isOut ? "sell" : "buy",
     });
   }
   return trades;
@@ -427,7 +511,7 @@ function intervalScaleAvgPrice(
   const prices = regularIntervalIndices(windowBars.length, tranches).map(
     (idx) => applyExecutionPrice(windowBars[idx].c, direction, friction)
   );
-  return avgPriceFromPrices(prices, totalAmount);
+  return avgPriceFromPrices(prices, totalAmount, direction === "scale_out");
 }
 
 function randomEnsembleAvgPrice(
@@ -440,24 +524,28 @@ function randomEnsembleAvgPrice(
   friction: ExecutionFrictionConfig = normalizeFriction()
 ): number {
   if (tranches <= 0 || samples <= 0) return 0;
+  const sharesMode = direction === "scale_out";
   let total = 0;
   for (let i = 0; i < samples; i++) {
     const sampleSeed = (seed + Math.imul(i + 1, 0x9e3779b9)) >>> 0;
     const prices = pickRandomIndices(tranches, windowBars.length, sampleSeed).map(
       (idx) => applyExecutionPrice(windowBars[idx].c, direction, friction)
     );
-    total += avgPriceFromPrices(prices, totalAmount);
+    total += avgPriceFromPrices(prices, totalAmount, sharesMode);
   }
   return total / samples;
 }
 
-function avgPriceFromPrices(prices: number[], totalAmount: number): number {
-  if (prices.length === 0 || totalAmount <= 0) return 0;
+function avgPriceFromPrices(prices: number[], totalAmount: number, sharesMode = false): number {
+  const valid = prices.filter((p) => p > 0);
+  if (valid.length === 0) return 0;
+  if (sharesMode) {
+    // Equal shares per tranche → arithmetic mean of prices.
+    return valid.reduce((s, p) => s + p, 0) / valid.length;
+  }
+  if (totalAmount <= 0) return 0;
   const amountPerTrade = totalAmount / prices.length;
-  const totalShares = prices.reduce((sum, p) => {
-    if (p <= 0) return sum;
-    return sum + amountPerTrade / p;
-  }, 0);
+  const totalShares = prices.reduce((sum, p) => (p > 0 ? sum + amountPerTrade / p : sum), 0);
   return totalShares > 0 ? totalAmount / totalShares : 0;
 }
 
@@ -495,6 +583,18 @@ function smartAdvantagePct(
     return ((smartAvgPrice - baselineAvgPrice) / baselineAvgPrice) * 100;
   }
   return ((baselineAvgPrice - smartAvgPrice) / baselineAvgPrice) * 100;
+}
+
+function buildSinglePhaseReturnComparison(result: DirectionalBacktestResult): ReturnComparison {
+  const zero: ReturnSnapshot = { avgBuyPrice: 0, avgSellPrice: 0, shares: 0, proceeds: 0, profitUsd: 0, profitPct: 0 };
+  return {
+    lumpSum: zero,
+    randomEnsemble: zero,
+    intervalScale: zero,
+    strategyVsLumpPct: result.comparison.smartVsLumpPct,
+    strategyVsRandomPct: result.comparison.smartVsRandomPct,
+    strategyVsIntervalPct: result.comparison.smartVsIntervalPct,
+  };
 }
 
 function buildReturnComparison(

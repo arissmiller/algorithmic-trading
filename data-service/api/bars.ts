@@ -21,13 +21,20 @@ export default async function handler(req: any, res: any) {
   const symbolParam = firstQueryValue(req.query?.symbol);
   const rangeParam = firstQueryValue(req.query?.range) ?? null;
   const timeframeParam = firstQueryValue(req.query?.timeframe);
-  const timeframe = timeframeParam === "1Hour" ? "1Hour" : "1Day";
+  const timeframe =
+    timeframeParam === "1Hour" || timeframeParam === "15Min"
+      ? timeframeParam
+      : "1Day";
+  const startDate = firstQueryValue(req.query?.startDate);
+  const endDate = firstQueryValue(req.query?.endDate);
 
   try {
     const payload = await fetchMarketBars({
       symbol: symbolParam ?? "",
       range: rangeParam,
       timeframe,
+      startDate,
+      endDate,
     });
 
     res.statusCode = 200;

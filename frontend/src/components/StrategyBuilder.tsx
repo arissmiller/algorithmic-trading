@@ -6,8 +6,9 @@ export type StrategyMode = "two_phase" | "continuous_range";
 
 export interface StrategyForm {
   symbol: string;
-  timeframe: "1Day" | "1Hour";
+  timeframe: "1Day" | "1Hour" | "15Min";
   strategyMode: StrategyMode;
+  phase?: "scale_in" | "scale_out";
   totalAmount: number;
   cadenceDays: number;
   startDate: string;
@@ -31,22 +32,17 @@ interface Props {
 }
 
 type SignalKey = keyof typeof SIGNAL_META;
-export type StrategyPresetKey =
-  | "mean_reversion_balanced"
-  | "capitulation_hunter"
-  | "trend_pullback_hybrid"
-  | "defensive_risk_off"
-  | "hourly_mean_reversion"
-  | "crypto_spot_balanced";
+export type StrategyPresetKey = "scale_in" | "selloff";
 
 export type StrategyPreset = {
   key: StrategyPresetKey;
   label: string;
   suitableFor: string;
   tuneHint: string;
+  phase: "scale_in" | "scale_out";
   strategyMode?: StrategyMode;
   defaultRangeDays?: number;
-  timeframe?: "1Day" | "1Hour";
+  timeframe?: "1Day" | "1Hour" | "15Min";
   config: Pick<
     StrategyForm,
     "cadenceDays" | "scaleInWindowDays" | "scaleOutWindowDays" | "aggressiveness" | "signals"
@@ -55,112 +51,38 @@ export type StrategyPreset = {
 
 export const STRATEGY_PRESETS: StrategyPreset[] = [
   {
-    key: "mean_reversion_balanced",
-    label: "Mean Reversion (Balanced)",
-    suitableFor: "Sideways/choppy markets with frequent pullbacks",
-    tuneHint: "Raise aggressiveness in range-bound markets. Lower it when trend persistence increases.",
-    config: {
-      cadenceDays: 3,
-      scaleInWindowDays: 30,
-      scaleOutWindowDays: 45,
-      aggressiveness: 0.6,
-      signals: [
-        { signal: { type: "price_vs_sma", period: 20 }, weight: 0.4 },
-        { signal: { type: "rsi", period: 14 }, weight: 0.4 },
-        { signal: { type: "bollinger_band", period: 20, std_dev: 2 }, weight: 0.2 },
-      ],
-    },
-  },
-  {
-    key: "capitulation_hunter",
-    label: "Capitulation Hunter",
-    suitableFor: "Panic selloffs and volatility spikes",
-    tuneHint: "Use shorter cadence and higher volume weight during sharp drawdowns, then taper back.",
-    config: {
-      cadenceDays: 2,
-      scaleInWindowDays: 25,
-      scaleOutWindowDays: 35,
-      aggressiveness: 0.8,
-      signals: [
-        { signal: { type: "rsi", period: 10 }, weight: 0.3 },
-        { signal: { type: "bollinger_band", period: 20, std_dev: 2.5 }, weight: 0.25 },
-        { signal: { type: "volume", period: 20 }, weight: 0.3 },
-        { signal: { type: "momentum", period: 7 }, weight: 0.15 },
-      ],
-    },
-  },
-  {
-    key: "trend_pullback_hybrid",
-    label: "Trend Pullback Hybrid",
-    suitableFor: "Uptrends with shallow pullbacks",
-    tuneHint: "Lengthen windows and reduce aggressiveness as trend quality improves.",
-    config: {
-      cadenceDays: 5,
-      scaleInWindowDays: 45,
-      scaleOutWindowDays: 60,
-      aggressiveness: 0.45,
-      signals: [
-        { signal: { type: "price_vs_sma", period: 30 }, weight: 0.35 },
-        { signal: { type: "momentum", period: 20 }, weight: 0.35 },
-        { signal: { type: "rsi", period: 14 }, weight: 0.2 },
-        { signal: { type: "volume", period: 20 }, weight: 0.1 },
-      ],
-    },
-  },
-  {
-    key: "defensive_risk_off",
-    label: "Defensive Risk-Off",
-    suitableFor: "Uncertain macro and unstable trend transitions",
-    tuneHint: "Keep aggressiveness low and cadence wider until volatility and drawdown pressure normalize.",
+    key: "scale_in",
+    label: "Scale In",
+    suitableFor: "Accumulating a position over time",
+    tuneHint: "Raise aggressiveness in high-conviction setups. Duration and cadence are set by the run queue option.",
+    phase: "scale_in",
     config: {
       cadenceDays: 7,
-      scaleInWindowDays: 60,
-      scaleOutWindowDays: 30,
-      aggressiveness: 0.25,
+      scaleInWindowDays: 90,
+      scaleOutWindowDays: 1,
+      aggressiveness: 0.55,
       signals: [
-        { signal: { type: "price_vs_sma", period: 40 }, weight: 0.5 },
-        { signal: { type: "rsi", period: 14 }, weight: 0.25 },
-        { signal: { type: "momentum", period: 15 }, weight: 0.15 },
-        { signal: { type: "volume", period: 20 }, weight: 0.1 },
+        { signal: { type: "price_vs_sma", period: 30 }, weight: 0.35 },
+        { signal: { type: "rsi", period: 14 }, weight: 0.4 },
+        { signal: { type: "bollinger_band", period: 20, std_dev: 2 }, weight: 0.25 },
       ],
     },
   },
   {
-    key: "hourly_mean_reversion",
-    label: "Hourly Mean Reversion",
-    suitableFor: "Crypto intraday — picks the best entry/exit hour within each day",
-    tuneHint: "Uses hourly candles. Shorten windows further in high-volatility periods; raise aggressiveness when price oscillates tightly.",
-    timeframe: "1Hour",
+    key: "selloff",
+    label: "Selloff",
+    suitableFor: "Exiting a position gradually over time",
+    tuneHint: "Raise aggressiveness to exit faster. Use volume signals to time sales around peak sell pressure.",
+    phase: "scale_out",
     config: {
-      cadenceDays: 1,
-      scaleInWindowDays: 14,
-      scaleOutWindowDays: 21,
-      aggressiveness: 0.75,
+      cadenceDays: 7,
+      scaleInWindowDays: 1,
+      scaleOutWindowDays: 90,
+      aggressiveness: 0.55,
       signals: [
-        { signal: { type: "bollinger_band", period: 20, std_dev: 2 }, weight: 0.45 },
         { signal: { type: "rsi", period: 14 }, weight: 0.35 },
-        { signal: { type: "momentum", period: 10 }, weight: 0.20 },
-      ],
-    },
-  },
-  {
-    key: "crypto_spot_balanced",
-    label: "Crypto Spot Balanced (Perpetual)",
-    suitableFor: "Long-run crypto spot allocation with continuous buy/sell opportunities",
-    tuneHint: "Uses a continuous date range (start/end only). Keep cadence at 1-2 days for responsive execution.",
-    strategyMode: "continuous_range",
-    defaultRangeDays: 365,
-    timeframe: "1Hour",
-    config: {
-      cadenceDays: 1,
-      scaleInWindowDays: 30,
-      scaleOutWindowDays: 30,
-      aggressiveness: 0.65,
-      signals: [
-        { signal: { type: "price_vs_sma", period: 20 }, weight: 0.35 },
-        { signal: { type: "rsi", period: 14 }, weight: 0.35 },
-        { signal: { type: "bollinger_band", period: 20, std_dev: 2 }, weight: 0.2 },
-        { signal: { type: "momentum", period: 10 }, weight: 0.1 },
+        { signal: { type: "volume", period: 20 }, weight: 0.35 },
+        { signal: { type: "momentum", period: 10 }, weight: 0.3 },
       ],
     },
   },
@@ -204,14 +126,7 @@ function defaultForm(defaultSymbol = "AAPL"): StrategyForm {
     ],
   };
 
-  if (isCryptoDefault) {
-    const cryptoSpotPreset = STRATEGY_PRESETS.find((preset) => preset.key === "crypto_spot_balanced");
-    if (cryptoSpotPreset) {
-      return buildPresetForm(baseForm, cryptoSpotPreset);
-    }
-  }
-
-  return baseForm;
+  return buildPresetForm(baseForm, STRATEGY_PRESETS[0]);
 }
 
 export default function StrategyBuilder({
@@ -222,9 +137,7 @@ export default function StrategyBuilder({
   defaultSymbol = "AAPL",
 }: Props) {
   const [form, setForm] = useState<StrategyForm>(() => defaultForm(defaultSymbol));
-  const [presetKey, setPresetKey] = useState<StrategyPresetKey>(() =>
-    isLikelyCryptoSymbol(defaultSymbol) ? "crypto_spot_balanced" : "mean_reversion_balanced"
-  );
+  const [presetKey, setPresetKey] = useState<StrategyPresetKey>("scale_in");
   const isContinuousRange = form.strategyMode === "continuous_range";
   const continuousWindowDays = deriveContinuousWindowDays(form.startDate, form.endDate);
   const continuousDateError = isContinuousRange
@@ -236,6 +149,7 @@ export default function StrategyBuilder({
   const suggestedScaleOutStartDate = addDaysIso(form.startDate, form.scaleInWindowDays);
   const selectedPreset = STRATEGY_PRESETS.find((p) => p.key === presetKey) ?? STRATEGY_PRESETS[0];
   const isCryptoSymbol = isLikelyCryptoSymbol(form.symbol);
+  const isIntraday = form.timeframe !== "1Day";
 
   useEffect(() => {
     onFormChange?.(form);
@@ -367,7 +281,7 @@ export default function StrategyBuilder({
         </Field>
       )}
 
-      {!isContinuousRange && form.timeframe !== "1Hour" && (
+      {!isContinuousRange && !isIntraday && (
         <div className="grid grid-cols-2 gap-2">
           <Field label="Scale-In Duration (days)">
             <input
@@ -390,13 +304,14 @@ export default function StrategyBuilder({
         </div>
       )}
 
-      {!isContinuousRange && form.timeframe === "1Hour" && (
+      {!isContinuousRange && isIntraday && (
         <div className="rounded border border-border bg-surface-2 px-2.5 py-2 text-[10px] text-text-secondary">
-          Scale-in: {form.scaleInWindowDays} days · Scale-out: {form.scaleOutWindowDays} days (set by preset)
+          Scale-in: {form.scaleInWindowDays} days · Scale-out: {form.scaleOutWindowDays} days
+          {" "}(set by preset for intraday)
         </div>
       )}
 
-      {!isContinuousRange && form.timeframe !== "1Hour" && (
+      {!isContinuousRange && !isIntraday && (
         <Field label="Scale-Out Start Date">
           <div className="flex items-center gap-2">
             <input
@@ -594,30 +509,43 @@ function addDaysIso(isoDate: string, days: number): string {
 
 export function buildPresetForm(baseForm: StrategyForm, preset: StrategyPreset): StrategyForm {
   const strategyMode = preset.strategyMode ?? "two_phase";
+  const phase = preset.phase;
   const nextScaleInDays = preset.config.scaleInWindowDays;
+  const nextScaleOutDays = preset.config.scaleOutWindowDays;
   const nextStartDate = baseForm.startDate;
-  const nextEndDate =
-    strategyMode === "continuous_range"
-      ? addDaysIso(nextStartDate, Math.max(1, preset.defaultRangeDays ?? 365))
-      : addDaysIso(nextStartDate, nextScaleInDays + preset.config.scaleOutWindowDays);
+
+  let nextEndDate: string;
+  let nextScaleOutStartDate: string;
+
+  if (strategyMode === "continuous_range") {
+    nextEndDate = addDaysIso(nextStartDate, Math.max(1, preset.defaultRangeDays ?? 365));
+    nextScaleOutStartDate = nextStartDate;
+  } else if (phase === "scale_in") {
+    nextEndDate = addDaysIso(nextStartDate, nextScaleInDays);
+    nextScaleOutStartDate = addDaysIso(nextStartDate, nextScaleInDays);
+  } else if (phase === "scale_out") {
+    nextEndDate = addDaysIso(nextStartDate, nextScaleOutDays);
+    nextScaleOutStartDate = nextStartDate;
+  } else {
+    nextEndDate = addDaysIso(nextStartDate, nextScaleInDays + nextScaleOutDays);
+    nextScaleOutStartDate = addDaysIso(nextStartDate, nextScaleInDays);
+  }
 
   return {
     ...baseForm,
     strategyMode,
+    phase,
     timeframe: preset.timeframe ?? "1Day",
     cadenceDays: preset.config.cadenceDays,
     startDate: nextStartDate,
     endDate: nextEndDate,
     scaleInWindowDays: nextScaleInDays,
-    scaleOutWindowDays: preset.config.scaleOutWindowDays,
+    scaleOutWindowDays: nextScaleOutDays,
     aggressiveness: preset.config.aggressiveness,
     signals: preset.config.signals.map((sw) => ({
       ...sw,
       signal: { ...sw.signal },
     })),
-    scaleOutStartDate:
-      strategyMode === "continuous_range"
-        ? nextStartDate
-        : addDaysIso(nextStartDate, nextScaleInDays),
+    scaleOutStartDate: nextScaleOutStartDate,
   };
 }

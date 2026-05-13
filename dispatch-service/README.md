@@ -1,12 +1,12 @@
 # Dispatch Service
 
-This service receives generated watchlist signals and routes them to user delivery channels (`email` and `sms`).
+This service receives generated watchlist signals and routes them to user delivery channels (`email`, `sms`, and `telegram`).
 
 ## Purpose
 
 - Accept signal payloads from `data-service`.
 - Resolve delivery channels using per-user dispatch profiles.
-- Fan out messages through SMTP email and Twilio SMS (or log-only mode in development).
+- Fan out messages through SMTP email, Twilio SMS, and Telegram bot messages (or log-only mode in development).
 
 ## Runtime
 
@@ -47,7 +47,7 @@ All `/api/dispatch/*` routes require `DISPATCH_AUTH_TOKEN` if configured. Pass i
   "barTime": "2026-04-29T20:00:00.000Z",
   "generatedAt": "2026-04-29T20:01:00.000Z",
   "watchlistUpdatedAt": "2026-04-28T14:12:00.000Z",
-  "preferredChannels": ["email", "sms"]
+  "preferredChannels": ["email", "telegram"]
 }
 ```
 
@@ -68,6 +68,10 @@ All `/api/dispatch/*` routes require `DISPATCH_AUTH_TOKEN` if configured. Pass i
   "sms": {
     "enabled": true,
     "phoneE164": "+14155551212"
+  },
+  "telegram": {
+    "enabled": true,
+    "chatId": "-1001234567890"
   }
 }
 ```
@@ -76,8 +80,10 @@ Rules:
 
 - `email: null` clears email configuration.
 - `sms: null` clears SMS configuration.
+- `telegram: null` clears Telegram configuration.
 - If a channel is enabled, that channel must have a valid destination.
 - Phone numbers must be E.164 format.
+- Telegram `chatId` may be a numeric chat/channel ID (for example `-100...`) or an `@channel_username`.
 
 ## Environment Variables
 
@@ -88,14 +94,17 @@ Key values:
 - `DISPATCH_AUTH_TOKEN`: auth token expected on protected routes.
 - `DISPATCH_EMAIL_LOG_ONLY_MODE`: `true` to log email instead of SMTP send.
 - `DISPATCH_SMS_LOG_ONLY_MODE`: `true` to keep SMS in placeholder mode (`skipped`).
+- `DISPATCH_TELEGRAM_LOG_ONLY_MODE`: `true` to log Telegram messages instead of sending.
 - `DISPATCH_SMTP_*`: SMTP provider configuration.
 - `TWILIO_*`: Twilio SMS credentials.
+- `DISPATCH_TELEGRAM_BOT_TOKEN`: Telegram bot token used for `sendMessage`.
 
-If SMTP or Twilio credentials are missing, channel delivery is marked as `skipped` (not `failed`) so placeholder environments do not throw delivery errors.
+If SMTP, Twilio, or Telegram credentials are missing, channel delivery is marked as `skipped` (not `failed`) so placeholder environments do not throw delivery errors.
 
-Recommended setup when SMTP is ready but SMS is not:
+Recommended setup when SMTP + Telegram are ready but SMS is not:
 
 - `DISPATCH_EMAIL_LOG_ONLY_MODE=false`
+- `DISPATCH_TELEGRAM_LOG_ONLY_MODE=false`
 - `DISPATCH_SMS_LOG_ONLY_MODE=true`
 
 ## Local Dev

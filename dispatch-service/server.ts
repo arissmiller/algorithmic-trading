@@ -1,6 +1,11 @@
 import http from "node:http";
 import { timingSafeEqual } from "node:crypto";
-import { DispatchDelivery, readSmtpConfigFromEnv, readTwilioConfigFromEnv } from "./src/delivery";
+import {
+  DispatchDelivery,
+  readSmtpConfigFromEnv,
+  readTelegramConfigFromEnv,
+  readTwilioConfigFromEnv,
+} from "./src/delivery";
 import { normalizeDispatchableTradingSignal, SignalDispatcher } from "./src/dispatcher";
 import { DispatchProfileStore } from "./src/profileStore";
 import { TradingConnectionStore, UserTradingConnectionInput } from "./src/tradingConnections";
@@ -32,14 +37,20 @@ const SMS_LOG_ONLY_MODE = parseBooleanEnv(
   "DISPATCH_SMS_LOG_ONLY_MODE",
   process.env.NODE_ENV !== "production"
 );
+const TELEGRAM_LOG_ONLY_MODE = parseBooleanEnv(
+  "DISPATCH_TELEGRAM_LOG_ONLY_MODE",
+  process.env.NODE_ENV !== "production"
+);
 
 const profileStore = new DispatchProfileStore(STATE_FILE);
 const tradingStore = new TradingConnectionStore(TRADING_STATE_FILE);
 const delivery = new DispatchDelivery({
   smtpConfig: readSmtpConfigFromEnv(),
   twilioConfig: readTwilioConfigFromEnv(),
+  telegramConfig: readTelegramConfigFromEnv(),
   emailLogOnlyMode: EMAIL_LOG_ONLY_MODE,
   smsLogOnlyMode: SMS_LOG_ONLY_MODE,
+  telegramLogOnlyMode: TELEGRAM_LOG_ONLY_MODE,
 });
 const dispatcher = new SignalDispatcher({
   profileStore,

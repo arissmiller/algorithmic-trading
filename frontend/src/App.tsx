@@ -1,30 +1,16 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useStore } from "./store";
-import StrategyBuilder, {
-  buildPresetForm,
-  STRATEGY_PRESETS,
-  StrategyForm,
-  StrategyPresetKey,
-} from "./components/StrategyBuilder";
-import BacktestMetrics from "./components/BacktestMetrics";
-import TradeTable from "./components/TradeTable";
-import PerformanceSummary from "./components/PerformanceSummary";
-import BacktestChart from "./components/BacktestChart";
+import { STRATEGY_PRESETS, StrategyForm } from "./components/StrategyBuilder";
+import RunQueueBuilder, { BacktestRun } from "./components/RunQueueBuilder";
+import RunQueueResults, { RunQueueResult } from "./components/RunQueueResults";
 import AIControlCenter from "./components/AIControlCenter";
-import PaperTradingBot from "./components/PaperTradingBot";
-import AuthGate, { type AuthUser } from "./components/AuthGate";
-import WatchlistsManagerPage from "./components/WatchlistsManagerPage";
-import AccountPage from "./components/AccountPage";
-import CommunityPage from "./components/CommunityPage";
-import { BacktestResult, DirectionalBacktestResult, runBacktest } from "./lib/backtest";
-import { Bar, SIGNAL_META, SignalWeight } from "./lib/signals";
-import { formatAuthDependencyError } from "./lib/authErrors";
+import { BacktestResult, runBacktest } from "./lib/backtest";
+import { Bar } from "./lib/signals";
 
 const STOCK_BENCHMARK_SYMBOL = "^GSPC";
 const CRYPTO_BENCHMARK_SYMBOL = "BTC/USD";
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/+$/, "");
 const API_PREFIX = API_BASE_URL ? `${API_BASE_URL}/api` : "/api";
-const AUTH_TOKEN_STORAGE_KEY = "smart_scale_auth_token";
 
 type AlpacaAccountSnapshot = {
   account: {
@@ -53,53 +39,13 @@ type AlpacaPosition = {
   changeToday: number | null;
 };
 
-type PresetBacktestRun = {
-  presetKey: StrategyPresetKey;
-  label: string;
-  suitableFor: string;
-  form: StrategyForm;
-  result: BacktestResult | null;
-  error: string | null;
-};
-
-type PresetRankingMetric =
-  | "vs_random"
-  | "vs_lump"
-  | "vs_interval"
-  | "profit_pct"
-  | "alpha_pct";
-
 type AssetClass = "stocks_etf" | "crypto";
 
-type WatchlistSummary = {
-  userId: string;
-  name: string;
-  assetClass?: AssetClass;
-  symbols: string[];
-  enabled: boolean;
-  updatedAt: string;
-};
-
-type WatchlistBacktestRun = {
-  symbol: string;
-  bars: Bar[];
-  result: BacktestResult | null;
-  error: string | null;
-};
-
-type AppPage =
-  | "stocks_backtest"
-  | "crypto_backtest"
-  | "watchlists"
-  | "community"
-  | "account";
+type AppPage = "stocks_backtest" | "crypto_backtest";
 
 const APP_PAGES: { id: AppPage; label: string }[] = [
   { id: "stocks_backtest", label: "Stocks/ETF Backtest" },
   { id: "crypto_backtest", label: "Crypto Backtest" },
-  { id: "watchlists", label: "Watchlists" },
-  { id: "community", label: "Community" },
-  { id: "account", label: "Account" },
 ];
 
 export default function App() {
@@ -118,12 +64,7 @@ export default function App() {
     setRunError,
     setServerOnline,
   } = useStore();
-  const [lastRunSignals, setLastRunSignals] = useState<SignalWeight[]>([]);
-  const [lastRunStrategyId, setLastRunStrategyId] = useState("");
-  const [presetRuns, setPresetRuns] = useState<PresetBacktestRun[]>([]);
-  const [selectedPresetKey, setSelectedPresetKey] = useState<StrategyPresetKey | null>(null);
   const [activePage, setActivePage] = useState<AppPage>("stocks_backtest");
-  const [authUser, setAuthUser] = useState<AuthUser | null>(null);
 
   useEffect(() => {
     async function check() {
@@ -140,32 +81,26 @@ export default function App() {
     return () => clearInterval(id);
   }, [setServerOnline]);
 
-  useEffect(() => {
-    if (!result) return;
-
-    const resultIsCrypto = isLikelyCryptoSymbol(result.symbol);
-    const pageIsStocks = activePage === "stocks_backtest";
-    const pageIsCrypto = activePage === "crypto_backtest";
-
-    if ((pageIsStocks && resultIsCrypto) || (pageIsCrypto && !resultIsCrypto)) {
-      setResult(null);
-      setRunError(null);
-      setPresetRuns([]);
-      setSelectedPresetKey(null);
-      setLastRunSignals([]);
-      setBars([]);
-    }
-  }, [activePage, result, setBars, setResult, setRunError]);
-
   const barsCacheRef = useRef<Record<string, Bar[]>>({});
 
   async function fetchBars(
     symbol: string,
-    options: { persist: boolean; timeframe?: "1Day" | "1Hour" }
+    options: {
+      persist: boolean;
+      timeframe?: "1Day" | "1Hour" | "15Min";
+      startDate?: string;
+      endDate?: string;
+      range?: string;
+    }
   ): Promise<Bar[]> {
     const normalizedSymbol = normalizeSymbol(symbol);
     const timeframe = options.timeframe ?? "1Day";
-    const cacheKey = `${normalizedSymbol}::${timeframe}`;
+    const range = options.range ?? "2y";
+    const intradayWindowKey =
+      timeframe === "15Min"
+        ? `${options.startDate ?? "none"}::${options.endDate ?? "none"}`
+        : "all";
+    const cacheKey = `${normalizedSymbol}::${timeframe}::${range}::${intradayWindowKey}`;
     const cached = barsCacheRef.current[cacheKey];
     if (cached && cached.length > 0) {
       if (options.persist) {
@@ -180,8 +115,15 @@ export default function App() {
     }
 
     try {
-      const params = new URLSearchParams({ symbol: normalizedSymbol, range: "2y" });
-      if (timeframe === "1Hour") params.set("timeframe", "1Hour");
+      const params = new URLSearchParams({ symbol: normalizedSymbol, range });
+      if (timeframe !== "1Day") params.set("timeframe", timeframe);
+      if (timeframe === "15Min") {
+        if (!options.startDate || !options.endDate) {
+          throw new Error("15Min backtests require start and end dates.");
+        }
+        params.set("startDate", options.startDate);
+        params.set("endDate", options.endDate);
+      }
       const res = await fetch(`${API_PREFIX}/bars?${params.toString()}`);
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
@@ -228,6 +170,7 @@ export default function App() {
       scaleOutStartDate: windows.scaleOutStartDate,
       scaleInWindowDays: windows.scaleInWindowDays,
       scaleOutWindowDays: windows.scaleOutWindowDays,
+      phase: form.phase,
       randomEnsembleSamples: form.randomEnsembleSamples,
       aggressiveness: form.aggressiveness,
       accountType: form.accountType,
@@ -241,238 +184,112 @@ export default function App() {
     return computed;
   }
 
-  async function handleRun(form: StrategyForm, benchmarkSymbol: string) {
+  function buildFormFromRun(run: BacktestRun): StrategyForm {
+    const preset = STRATEGY_PRESETS.find((p) => p.key === run.presetKey) ?? STRATEGY_PRESETS[0];
+    const strategyMode = preset.strategyMode ?? "two_phase";
+    const presetPhase = preset.phase;
+
+    let scaleInDays: number;
+    let scaleOutDays: number;
+
+    if (strategyMode === "continuous_range") {
+      scaleInDays = run.durationDays;
+      scaleOutDays = run.durationDays;
+    } else if (presetPhase === "scale_in") {
+      scaleInDays = run.durationDays;
+      scaleOutDays = 1;
+    } else if (presetPhase === "scale_out") {
+      scaleInDays = 1;
+      scaleOutDays = run.durationDays;
+    } else {
+      const presetScaleIn = preset.config.scaleInWindowDays;
+      const presetScaleOut = preset.config.scaleOutWindowDays;
+      const presetTotal = presetScaleIn + presetScaleOut;
+      scaleInDays = Math.max(1, Math.round((run.durationDays * presetScaleIn) / presetTotal));
+      scaleOutDays = Math.max(1, run.durationDays - scaleInDays);
+    }
+
+    const scaleOutStartDate = presetPhase === "scale_out"
+      ? run.startDate
+      : addDaysIso(run.startDate, scaleInDays);
+    const endDate = addDaysIso(scaleOutStartDate, scaleOutDays);
+    const symbol = normalizeSymbol(run.symbol);
+
+    return {
+      symbol,
+      timeframe: preset.timeframe ?? "1Day",
+      strategyMode,
+      phase: presetPhase,
+      totalAmount: run.totalAmount,
+      cadenceDays: run.cadenceDays,
+      startDate: run.startDate,
+      endDate,
+      scaleInWindowDays: scaleInDays,
+      scaleOutStartDate,
+      scaleOutWindowDays: scaleOutDays,
+      randomEnsembleSamples: 400,
+      aggressiveness: preset.config.aggressiveness,
+      accountType: isLikelyCryptoSymbol(symbol) ? "tax_advantaged" : "taxable",
+      washSaleWindowDays: 30,
+      signals: preset.config.signals.map((sw) => ({ ...sw, signal: { ...sw.signal } })),
+    };
+  }
+
+  async function handleRunQueue(
+    runs: BacktestRun[],
+    benchmarkSymbol: string
+  ): Promise<RunQueueResult[]> {
     setRunning(true);
     setRunError(null);
 
-    try {
-      const symbol = normalizeSymbol(form.symbol);
-      const assetBars = await fetchBars(symbol, { persist: true, timeframe: form.timeframe });
-      if (assetBars.length === 0) throw new Error("No bars loaded for symbol.");
+    const results: RunQueueResult[] = [];
 
-      let benchmarkBars: Bar[] = [];
-      let benchmarkError: string | null = null;
-
-      if (normalizeSymbol(benchmarkSymbol) === symbol) {
-        benchmarkBars = assetBars;
-      } else {
-        try {
-          benchmarkBars = await fetchBars(benchmarkSymbol, { persist: false });
-        } catch (e) {
-          benchmarkError = e instanceof Error ? e.message : "Unknown benchmark error";
-        }
-      }
-
-      const computed = computeResultForForm(
-        form,
-        assetBars,
-        benchmarkBars,
-        benchmarkSymbol
-      );
-
-      setResult(computed);
-      setPresetRuns([]);
-      setSelectedPresetKey(null);
-      setLastRunSignals(form.signals.map((sw) => ({ ...sw, signal: { ...sw.signal } })));
-      setLastRunStrategyId(makeStrategyId(form));
-
-      if (benchmarkError) {
-        setRunError(
-          `Backtest ran, but benchmark (${benchmarkSymbol}) was unavailable: ${benchmarkError}`
-        );
-      }
-    } catch (e) {
-      setRunError(e instanceof Error ? e.message : "Unknown error");
-      setResult(null);
-    } finally {
-      setRunning(false);
-    }
-  }
-
-  async function handleRunPresetSuite(
-    baseForm: StrategyForm,
-    benchmarkSymbol: string
-  ) {
-    setRunning(true);
-    setRunError(null);
-
-    try {
-      const symbol = normalizeSymbol(baseForm.symbol);
-      // Pre-fetch both daily and hourly bars so per-preset fetches hit cache
-      const dailyBars = await fetchBars(symbol, { persist: true, timeframe: "1Day" });
-      if (dailyBars.length === 0) throw new Error("No bars loaded for symbol.");
-      await fetchBars(symbol, { persist: false, timeframe: "1Hour" }).catch(() => null);
-
-      let benchmarkBars: Bar[] = [];
-      let benchmarkError: string | null = null;
-      if (normalizeSymbol(benchmarkSymbol) === symbol) {
-        benchmarkBars = dailyBars;
-      } else {
-        try {
-          benchmarkBars = await fetchBars(benchmarkSymbol, { persist: false });
-        } catch (e) {
-          benchmarkError = e instanceof Error ? e.message : "Unknown benchmark error";
-        }
-      }
-
-      const runs: PresetBacktestRun[] = [];
-      for (const preset of STRATEGY_PRESETS) {
-        const form = buildPresetForm(baseForm, preset);
-        const presetBars = await fetchBars(symbol, { persist: false, timeframe: form.timeframe });
-        try {
-          const computed = computeResultForForm(
-            form,
-            presetBars,
-            benchmarkBars,
-            benchmarkSymbol
-          );
-          runs.push({
-            presetKey: preset.key,
-            label: preset.label,
-            suitableFor: preset.suitableFor,
-            form,
-            result: computed,
-            error: null,
-          });
-        } catch (e) {
-          const msg = e instanceof Error ? e.message : "Unknown error";
-          runs.push({
-            presetKey: preset.key,
-            label: preset.label,
-            suitableFor: preset.suitableFor,
-            form,
-            result: null,
-            error: msg,
-          });
-        }
-      }
-
-      runs.sort((a, b) => {
-        if (a.result && !b.result) return -1;
-        if (!a.result && b.result) return 1;
-        if (!a.result && !b.result) return a.label.localeCompare(b.label);
-        const aScore = a.result!.performance.returnComparison.strategyVsRandomPct;
-        const bScore = b.result!.performance.returnComparison.strategyVsRandomPct;
-        if (bScore !== aScore) return bScore - aScore;
-        return b.result!.performance.profitPct - a.result!.performance.profitPct;
-      });
-
-      setPresetRuns(runs);
-      const best = runs.find((r) => r.result);
-      setSelectedPresetKey(best?.presetKey ?? null);
-      if (best?.result) {
-        setResult(best.result);
-        setLastRunSignals(best.form.signals.map((sw) => ({ ...sw, signal: { ...sw.signal } })));
-        setLastRunStrategyId(makeStrategyId(best.form));
-      } else {
-        setResult(null);
-      }
-
-      if (benchmarkError) {
-        setRunError(
-          `Preset suite ran, but benchmark (${benchmarkSymbol}) was unavailable: ${benchmarkError}`
-        );
-      } else if (!best) {
-        setRunError("Preset suite ran, but no preset produced trades for this configuration.");
-      }
-    } catch (e) {
-      setRunError(e instanceof Error ? e.message : "Unknown error");
-      setPresetRuns([]);
-      setSelectedPresetKey(null);
-      setResult(null);
-    } finally {
-      setRunning(false);
-    }
-  }
-
-  function handleSelectPresetRun(presetKey: StrategyPresetKey) {
-    const selected = presetRuns.find((run) => run.presetKey === presetKey);
-    if (!selected || !selected.result) return;
-    setSelectedPresetKey(presetKey);
-    setResult(selected.result);
-    setLastRunSignals(selected.form.signals.map((sw) => ({ ...sw, signal: { ...sw.signal } })));
-    setLastRunStrategyId(makeStrategyId(selected.form));
-  }
-
-  async function runWatchlistBacktests(
-    baseForm: StrategyForm,
-    symbols: string[],
-    benchmarkSymbol: string
-  ): Promise<WatchlistBacktestRun[]> {
-    const normalizedSymbols = Array.from(
-      new Set(symbols.map((symbol) => normalizeSymbol(symbol)).filter(Boolean))
-    );
-    if (normalizedSymbols.length === 0) {
-      return [];
-    }
-
-    const normalizedBenchmark = normalizeSymbol(benchmarkSymbol);
-    let benchmarkBarsCache: Bar[] | null = null;
-    const runs: WatchlistBacktestRun[] = [];
-
-    for (const symbol of normalizedSymbols) {
+    for (const run of runs) {
+      const form = buildFormFromRun(run);
       try {
-        const form = { ...baseForm, symbol };
-        const symbolBars = await fetchBars(symbol, { persist: false, timeframe: form.timeframe });
-        if (symbolBars.length === 0) {
-          throw new Error("No bars loaded.");
-        }
+        const symbol = normalizeSymbol(form.symbol);
+        const intradayFetchWindow = resolveIntradayFetchWindow(form);
+        const neededRange = rangeForStartDate(form.startDate);
+        const assetBars = await fetchBars(symbol, {
+          persist: false,
+          timeframe: form.timeframe,
+          range: neededRange,
+          startDate: intradayFetchWindow?.startDate,
+          endDate: intradayFetchWindow?.endDate,
+        });
+
+        if (assetBars.length === 0) throw new Error("No bars loaded for symbol.");
 
         let benchmarkBars: Bar[] = [];
-        if (symbol === normalizedBenchmark) {
-          benchmarkBars = symbolBars;
+        if (normalizeSymbol(benchmarkSymbol) === symbol) {
+          benchmarkBars = assetBars;
         } else {
-          if (!benchmarkBarsCache) {
-            benchmarkBarsCache = await fetchBars(benchmarkSymbol, { persist: false });
+          try {
+            benchmarkBars = await fetchBars(benchmarkSymbol, { persist: false });
+          } catch {
+            // non-fatal — benchmark unavailable
           }
-          benchmarkBars = benchmarkBarsCache;
         }
 
-        const computed = computeResultForForm(form, symbolBars, benchmarkBars, benchmarkSymbol);
-        runs.push({
-          symbol,
-          bars: symbolBars,
-          result: computed,
-          error: null,
-        });
+        const computed = computeResultForForm(form, assetBars, benchmarkBars, benchmarkSymbol);
+        results.push({ run, form, result: computed, bars: assetBars, error: null });
       } catch (e) {
-        runs.push({
-          symbol,
-          bars: [],
+        results.push({
+          run,
+          form,
           result: null,
+          bars: [],
           error: e instanceof Error ? e.message : "Unknown error",
         });
       }
     }
 
-    runs.sort((a, b) => {
-      if (a.result && !b.result) return -1;
-      if (!a.result && b.result) return 1;
-      if (!a.result && !b.result) return a.symbol.localeCompare(b.symbol);
-
-      const aScore = a.result!.performance.returnComparison.strategyVsRandomPct;
-      const bScore = b.result!.performance.returnComparison.strategyVsRandomPct;
-      if (bScore !== aScore) return bScore - aScore;
-      return b.result!.performance.profitPct - a.result!.performance.profitPct;
-    });
-
-    return runs;
-  }
-
-  function handleLoadWatchlistRun(baseForm: StrategyForm, run: WatchlistBacktestRun) {
-    if (!run.result) return;
-    setBars(run.bars);
-    setResult(run.result);
-    setRunError(null);
-    setPresetRuns([]);
-    setSelectedPresetKey(null);
-    setLastRunSignals(baseForm.signals.map((sw) => ({ ...sw, signal: { ...sw.signal } })));
-    setLastRunStrategyId(makeStrategyId({ ...baseForm, symbol: run.symbol }));
+    setRunning(false);
+    return results;
   }
 
   return (
     <div className="flex h-screen flex-col bg-surface text-text-primary overflow-hidden">
-      <AuthGate onAuthUserChange={setAuthUser} />
       <div className="pointer-events-none fixed left-1/2 top-2 z-50 -translate-x-1/2 rounded border-2 border-yellow-200 bg-yellow-300 px-4 py-1.5 text-center text-xs font-bold uppercase tracking-wide text-black shadow-[0_0_18px_rgba(253,224,71,0.55)]">
         Nothing here is intended as financial advice. All trades are virtual.
       </div>
@@ -514,27 +331,10 @@ export default function App() {
           <BacktestingPage
             key="stocks_backtest"
             title="Stocks/ETF Backtesting"
-            assetClass="stocks_etf"
-            authUser={authUser}
-            defaultSymbol="AAPL"
             running={running}
             runError={runError}
-            barsLoading={barsLoading}
-            bars={bars}
-            strategySignals={lastRunSignals}
-            result={result}
-            onRun={(form) => handleRun(form, STOCK_BENCHMARK_SYMBOL)}
-            onRunPresetSuite={(form) =>
-              handleRunPresetSuite(form, STOCK_BENCHMARK_SYMBOL)
-            }
-            presetRuns={presetRuns}
-            selectedPresetKey={selectedPresetKey}
-            onSelectPresetRun={handleSelectPresetRun}
-            onRunWatchlistBacktests={(form, symbols) =>
-              runWatchlistBacktests(form, symbols, STOCK_BENCHMARK_SYMBOL)
-            }
-            onLoadWatchlistRun={handleLoadWatchlistRun}
-            onOpenWatchlists={() => setActivePage("watchlists")}
+            benchmarkSymbol={STOCK_BENCHMARK_SYMBOL}
+            onRunQueue={handleRunQueue}
           />
         )}
 
@@ -542,53 +342,13 @@ export default function App() {
           <BacktestingPage
             key="crypto_backtest"
             title="Crypto Backtesting"
-            assetClass="crypto"
-            authUser={authUser}
-            defaultSymbol="BTC/USD"
             running={running}
             runError={runError}
-            barsLoading={barsLoading}
-            bars={bars}
-            strategySignals={lastRunSignals}
-            result={result}
-            onRun={(form) => handleRun(form, CRYPTO_BENCHMARK_SYMBOL)}
-            onRunPresetSuite={(form) =>
-              handleRunPresetSuite(form, CRYPTO_BENCHMARK_SYMBOL)
-            }
-            presetRuns={presetRuns}
-            selectedPresetKey={selectedPresetKey}
-            onSelectPresetRun={handleSelectPresetRun}
-            onRunWatchlistBacktests={(form, symbols) =>
-              runWatchlistBacktests(form, symbols, CRYPTO_BENCHMARK_SYMBOL)
-            }
-            onLoadWatchlistRun={handleLoadWatchlistRun}
-            onOpenWatchlists={() => setActivePage("watchlists")}
+            benchmarkSymbol={CRYPTO_BENCHMARK_SYMBOL}
+            onRunQueue={handleRunQueue}
           />
         )}
-
-        {activePage === "watchlists" && (
-          authUser ? (
-            <WatchlistsManagerPage authUser={authUser} />
-          ) : (
-            <AuthRequiredPanel message="Sign in to view or manage your watchlists." />
-          )
-        )}
-
-        {activePage === "community" && <CommunityPage />}
-
-        {activePage === "account" && <AccountPage authUser={authUser} />}
       </main>
-    </div>
-  );
-}
-
-function AuthRequiredPanel({ message }: { message: string }) {
-  return (
-    <div className="h-full overflow-auto p-4">
-      <section className="rounded border border-border bg-surface-1 p-4">
-        <h2 className="mb-2 text-sm font-semibold">Authentication Required</h2>
-        <p className="text-xs text-text-secondary">{message}</p>
-      </section>
     </div>
   );
 }
@@ -596,533 +356,53 @@ function AuthRequiredPanel({ message }: { message: string }) {
 
 function BacktestingPage({
   title,
-  assetClass,
-  authUser,
-  defaultSymbol,
   running,
   runError,
-  barsLoading,
-  bars,
-  strategySignals,
-  result,
-  onRun,
-  onRunPresetSuite,
-  presetRuns,
-  selectedPresetKey,
-  onSelectPresetRun,
-  onRunWatchlistBacktests,
-  onLoadWatchlistRun,
-  onOpenWatchlists,
+  benchmarkSymbol,
+  onRunQueue,
 }: {
   title: string;
-  assetClass: AssetClass;
-  authUser: AuthUser | null;
-  defaultSymbol: string;
   running: boolean;
   runError: string | null;
-  barsLoading: boolean;
-  bars: Bar[];
-  strategySignals: SignalWeight[];
-  result: BacktestResult | null;
-  onRun: (form: StrategyForm) => void;
-  onRunPresetSuite: (form: StrategyForm) => void;
-  presetRuns: PresetBacktestRun[];
-  selectedPresetKey: StrategyPresetKey | null;
-  onSelectPresetRun: (presetKey: StrategyPresetKey) => void;
-  onRunWatchlistBacktests: (
-    form: StrategyForm,
-    symbols: string[]
-  ) => Promise<WatchlistBacktestRun[]>;
-  onLoadWatchlistRun: (form: StrategyForm, run: WatchlistBacktestRun) => void;
-  onOpenWatchlists: () => void;
+  benchmarkSymbol: string;
+  onRunQueue: (runs: BacktestRun[], benchmarkSymbol: string) => Promise<RunQueueResult[]>;
 }) {
-  const [activeForm, setActiveForm] = useState<StrategyForm | null>(null);
-  const [rankBy, setRankBy] = useState<PresetRankingMetric>("vs_random");
-  const [watchlists, setWatchlists] = useState<WatchlistSummary[]>([]);
-  const [watchlistsLoading, setWatchlistsLoading] = useState(false);
-  const [watchlistsError, setWatchlistsError] = useState<string | null>(null);
-  const [selectedWatchlistId, setSelectedWatchlistId] = useState("");
-  const [watchlistRuns, setWatchlistRuns] = useState<WatchlistBacktestRun[]>([]);
-  const [watchlistBacktestError, setWatchlistBacktestError] = useState<string | null>(null);
-  const [runningWatchlistBacktest, setRunningWatchlistBacktest] = useState(false);
-  const [loadedWatchlistRunSymbol, setLoadedWatchlistRunSymbol] = useState<string | null>(null);
+  const [runs, setRuns] = useState<BacktestRun[]>([]);
+  const [runQueueResults, setRunQueueResults] = useState<RunQueueResult[]>([]);
 
-  const loadWatchlists = useCallback(async () => {
-    if (!authUser) {
-      setWatchlists([]);
-      setSelectedWatchlistId("");
-      setWatchlistsError(null);
-      return;
-    }
-
-    setWatchlistsLoading(true);
-    try {
-      const response = await fetch(`${API_PREFIX}/bot/watchlists`, {
-        headers: buildWatchlistAuthHeaders(),
-      });
-      const payload = (await response.json().catch(() => ({}))) as {
-        watchlists?: WatchlistSummary[];
-        error?: string;
-      };
-
-      if (!response.ok) {
-        throw new Error(payload.error ?? `Watchlists request failed (${response.status})`);
-      }
-
-      const allWatchlists = Array.isArray(payload.watchlists) ? payload.watchlists : [];
-      const filteredWatchlists = allWatchlists.filter(
-        (watchlist) => normalizeWatchlistAssetClass(watchlist.assetClass) === assetClass
-      );
-
-      setWatchlists(filteredWatchlists);
-      setSelectedWatchlistId((previous) => {
-        if (filteredWatchlists.some((watchlist) => watchlist.userId === previous)) {
-          return previous;
-        }
-        const preferred = filteredWatchlists.find((watchlist) => watchlist.enabled);
-        return preferred?.userId ?? filteredWatchlists[0]?.userId ?? "";
-      });
-      setWatchlistsError(null);
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : "Unable to load watchlists.";
-      setWatchlistsError(formatAuthDependencyError(msg));
-      setWatchlists([]);
-      setSelectedWatchlistId("");
-    } finally {
-      setWatchlistsLoading(false);
-    }
-  }, [assetClass, authUser]);
-
-  useEffect(() => {
-    void loadWatchlists();
-  }, [loadWatchlists]);
-
-  const selectedWatchlist = useMemo(
-    () => watchlists.find((watchlist) => watchlist.userId === selectedWatchlistId) ?? null,
-    [watchlists, selectedWatchlistId]
-  );
-
-  const handleRunWatchlistBacktest = useCallback(async () => {
-    if (!activeForm) {
-      setWatchlistBacktestError("Backtest form is still initializing. Please try again.");
-      return;
-    }
-
-    if (!selectedWatchlist) {
-      setWatchlistBacktestError("Select a watchlist first.");
-      return;
-    }
-
-    if (selectedWatchlist.symbols.length === 0) {
-      setWatchlistBacktestError("Selected watchlist has no symbols.");
-      return;
-    }
-
-    setWatchlistBacktestError(null);
-    setWatchlistRuns([]);
-    setLoadedWatchlistRunSymbol(null);
-    setRunningWatchlistBacktest(true);
-
-    try {
-      const runs = await onRunWatchlistBacktests(activeForm, selectedWatchlist.symbols);
-      setWatchlistRuns(runs);
-
-      const firstSuccessfulRun = runs.find((run) => run.result);
-      if (firstSuccessfulRun) {
-        onLoadWatchlistRun(activeForm, firstSuccessfulRun);
-        setLoadedWatchlistRunSymbol(firstSuccessfulRun.symbol);
-      } else {
-        setWatchlistBacktestError(
-          "Backtests finished, but no symbol produced trades for the current setup."
-        );
-      }
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : "Watchlist backtest failed.";
-      setWatchlistBacktestError(msg);
-    } finally {
-      setRunningWatchlistBacktest(false);
-    }
-  }, [activeForm, onLoadWatchlistRun, onRunWatchlistBacktests, selectedWatchlist]);
-
-  const handleLoadWatchlistResult = useCallback(
-    (run: WatchlistBacktestRun) => {
-      if (!activeForm || !run.result) return;
-      onLoadWatchlistRun(activeForm, run);
-      setLoadedWatchlistRunSymbol(run.symbol);
-    },
-    [activeForm, onLoadWatchlistRun]
-  );
-
-  const rankedPresetRuns = useMemo(() => {
-    return [...presetRuns].sort((a, b) => {
-      if (a.result && !b.result) return -1;
-      if (!a.result && b.result) return 1;
-      if (!a.result && !b.result) return a.label.localeCompare(b.label);
-      const aScore = getPresetRankingScore(a, rankBy);
-      const bScore = getPresetRankingScore(b, rankBy);
-      if (bScore !== aScore) return bScore - aScore;
-      return b.result!.performance.returnComparison.strategyVsRandomPct - a.result!.performance.returnComparison.strategyVsRandomPct;
-    });
-  }, [presetRuns, rankBy]);
+  async function handleRunAll() {
+    if (runs.length === 0) return;
+    const results = await onRunQueue(runs, benchmarkSymbol);
+    setRunQueueResults(results);
+  }
 
   return (
     <div className="flex h-full overflow-hidden">
-      <aside className="w-80 flex-shrink-0 border-r border-border overflow-y-auto">
-        <StrategyBuilder
-          defaultSymbol={defaultSymbol}
-          onRun={onRun}
-          onRunPresetSuite={onRunPresetSuite}
-          onFormChange={setActiveForm}
+      <aside className="w-72 flex-shrink-0 border-r border-border overflow-y-auto">
+        <RunQueueBuilder
+          runs={runs}
+          onRunsChange={setRuns}
+          onRunAll={() => void handleRunAll()}
           running={running}
         />
       </aside>
 
       <div className="flex flex-col flex-1 min-w-0">
-        <div className="px-4 py-2 border-b border-border/70 text-[11px] uppercase tracking-widest text-text-secondary font-semibold">
+        <div className="shrink-0 px-4 py-2 border-b border-border/70 text-[11px] uppercase tracking-widest text-text-secondary font-semibold">
           {title}
         </div>
         {runError && (
-          <div className="px-4 py-2 text-xs bg-sell/10 text-sell border-b border-sell/20">{runError}</div>
-        )}
-
-        <section className="border-b border-border bg-surface-1">
-          <div className="px-4 py-2 flex flex-wrap items-center gap-2">
-            <p className="text-[11px] uppercase tracking-widest text-text-secondary font-semibold">
-              Watchlist Backtesting
-            </p>
-            <span className="rounded border border-border bg-surface-2 px-2 py-0.5 text-[10px] uppercase tracking-wide text-text-secondary">
-              {assetClass === "crypto" ? "Crypto Watchlists" : "Stocks/ETF Watchlists"}
-            </span>
-            <div className="ml-auto flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => void loadWatchlists()}
-                disabled={watchlistsLoading || !authUser}
-                className="rounded border border-border bg-surface-2 px-2.5 py-1 text-[10px] text-text-secondary hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {watchlistsLoading ? "Refreshing..." : "Refresh"}
-              </button>
-              <button
-                type="button"
-                onClick={onOpenWatchlists}
-                className="rounded border border-accent/40 bg-accent/10 px-2.5 py-1 text-[10px] text-accent hover:bg-accent/20"
-              >
-                Manage Watchlists
-              </button>
-            </div>
+          <div className="shrink-0 px-4 py-2 text-xs bg-sell/10 text-sell border-b border-sell/20">
+            {runError}
           </div>
-
-          <div className="px-4 pb-3">
-            {!authUser ? (
-              <p className="text-[10px] text-text-secondary">
-                Sign in to run watchlist backtests from this screen.
-              </p>
-            ) : (
-              <>
-                <div className="flex flex-wrap items-end gap-2">
-                  <div className="min-w-56 flex-1">
-                    <label className="mb-1 block text-[10px] text-text-secondary">Watchlist</label>
-                    <select
-                      className="w-full rounded border border-border bg-surface-2 px-2 py-1.5 text-xs text-text-primary focus:border-accent focus:outline-none"
-                      value={selectedWatchlistId}
-                      onChange={(event) => setSelectedWatchlistId(event.target.value)}
-                    >
-                      <option value="">Select watchlist</option>
-                      {watchlists.map((watchlist) => (
-                        <option key={watchlist.userId} value={watchlist.userId}>
-                          {watchlist.name} ({watchlist.symbols.length})
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => void handleRunWatchlistBacktest()}
-                    disabled={
-                      running ||
-                      runningWatchlistBacktest ||
-                      watchlistsLoading ||
-                      !activeForm ||
-                      !selectedWatchlist
-                    }
-                    className="rounded border border-buy/40 bg-buy/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-buy hover:bg-buy/20 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {runningWatchlistBacktest ? "Running..." : "Run Across Watchlist"}
-                  </button>
-                </div>
-
-                {selectedWatchlist ? (
-                  <p className="mt-2 text-[10px] text-text-secondary">
-                    {selectedWatchlist.enabled ? "Enabled" : "Disabled"} ·{" "}
-                    {selectedWatchlist.symbols.length} symbol
-                    {selectedWatchlist.symbols.length === 1 ? "" : "s"} · Updated{" "}
-                    {new Date(selectedWatchlist.updatedAt).toLocaleString()}
-                  </p>
-                ) : null}
-              </>
-            )}
-
-            {watchlistsError ? (
-              <div className="mt-2 rounded border border-sell/30 bg-sell/10 px-2.5 py-2 text-[10px] text-sell">
-                {watchlistsError}
-              </div>
-            ) : null}
-            {watchlistBacktestError ? (
-              <div className="mt-2 rounded border border-sell/30 bg-sell/10 px-2.5 py-2 text-[10px] text-sell">
-                {watchlistBacktestError}
-              </div>
-            ) : null}
-
-            {watchlistRuns.length > 0 ? (
-              <div className="mt-3 overflow-x-auto rounded border border-border/70">
-                <table className="w-full text-[10px]">
-                  <thead className="uppercase tracking-wide text-text-secondary">
-                    <tr>
-                      <th className="px-2 py-2 text-left font-medium">#</th>
-                      <th className="px-2 py-2 text-left font-medium">Symbol</th>
-                      <th className="px-2 py-2 text-right font-medium">Return</th>
-                      <th className="px-2 py-2 text-right font-medium">Vs Random</th>
-                      <th className="px-2 py-2 text-right font-medium">Vs Lump</th>
-                      <th className="px-2 py-2 text-right font-medium">Vs Interval</th>
-                      <th className="px-2 py-2 text-right font-medium">Load</th>
-                      <th className="px-2 py-2 text-left font-medium">Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {watchlistRuns.map((run, index) => {
-                      const returns = run.result?.performance.returnComparison;
-                      const isLoaded = loadedWatchlistRunSymbol === run.symbol && Boolean(run.result);
-                      return (
-                        <tr
-                          key={`${run.symbol}-${index}`}
-                          className={`border-t border-border/60 ${
-                            isLoaded ? "bg-accent/10" : "hover:bg-surface-2"
-                          }`}
-                        >
-                          <td className="px-2 py-2 text-text-secondary">{index + 1}</td>
-                          <td className="px-2 py-2 text-text-primary">{run.symbol}</td>
-                          <td
-                            className={`px-2 py-2 text-right tabular-nums ${
-                              run.result && run.result.performance.profitPct >= 0
-                                ? "text-buy"
-                                : "text-sell"
-                            }`}
-                          >
-                            {run.result ? signedPct(run.result.performance.profitPct) : "-"}
-                          </td>
-                          <td
-                            className={`px-2 py-2 text-right tabular-nums ${
-                              returns && returns.strategyVsRandomPct >= 0 ? "text-buy" : "text-sell"
-                            }`}
-                          >
-                            {returns ? signedPct(returns.strategyVsRandomPct) : "-"}
-                          </td>
-                          <td
-                            className={`px-2 py-2 text-right tabular-nums ${
-                              returns && returns.strategyVsLumpPct >= 0 ? "text-buy" : "text-sell"
-                            }`}
-                          >
-                            {returns ? signedPct(returns.strategyVsLumpPct) : "-"}
-                          </td>
-                          <td
-                            className={`px-2 py-2 text-right tabular-nums ${
-                              returns && returns.strategyVsIntervalPct >= 0 ? "text-buy" : "text-sell"
-                            }`}
-                          >
-                            {returns ? signedPct(returns.strategyVsIntervalPct) : "-"}
-                          </td>
-                          <td className="px-2 py-2 text-right">
-                            <button
-                              type="button"
-                              onClick={() => handleLoadWatchlistResult(run)}
-                              disabled={!run.result}
-                              className={`rounded border px-2 py-1 text-[10px] font-semibold uppercase tracking-wide ${
-                                isLoaded
-                                  ? "border-accent/50 bg-accent/20 text-accent"
-                                  : "border-border bg-surface-2 text-text-secondary hover:text-text-primary"
-                              } disabled:cursor-not-allowed disabled:opacity-50`}
-                            >
-                              {!run.result ? "N/A" : isLoaded ? "Loaded" : "Load"}
-                            </button>
-                          </td>
-                          <td className="px-2 py-2 text-text-secondary">{run.error ?? "OK"}</td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            ) : null}
-          </div>
-        </section>
-
-        {presetRuns.length > 0 && (
-          <section className="border-b border-border bg-surface-1">
-            <div className="px-4 py-2 flex items-center gap-2">
-              <p className="text-[11px] uppercase tracking-widest text-text-secondary font-semibold">
-                Preset Backtest Results
-              </p>
-              <div className="ml-auto flex items-center gap-2">
-                <span className="text-[10px] text-text-secondary">Rank by</span>
-                <select
-                  className="rounded border border-border bg-surface-2 px-2 py-1 text-[10px] text-text-primary focus:border-accent focus:outline-none"
-                  value={rankBy}
-                  onChange={(e) => setRankBy(e.target.value as PresetRankingMetric)}
-                >
-                  <option value="vs_random">Strategy vs Random</option>
-                  <option value="vs_lump">Strategy vs Lump Sum</option>
-                  <option value="vs_interval">Strategy vs Interval</option>
-                  <option value="profit_pct">Strategy Return %</option>
-                  <option value="alpha_pct">Alpha vs Benchmark</option>
-                </select>
-              </div>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs">
-                <thead className="text-[10px] uppercase tracking-wide text-text-secondary border-t border-border">
-                  <tr>
-                    <th className="px-3 py-2 text-left font-medium">#</th>
-                    <th className="px-3 py-2 text-left font-medium">Preset</th>
-                    <th className="px-3 py-2 text-left font-medium">Best For</th>
-                    <th className="px-3 py-2 text-right font-medium">Strategy Return</th>
-                    <th className="px-3 py-2 text-right font-medium">Vs Random</th>
-                    <th className="px-3 py-2 text-right font-medium">Vs Lump</th>
-                    <th className="px-3 py-2 text-right font-medium">Vs Interval</th>
-                    <th className="px-3 py-2 text-right font-medium">Load</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rankedPresetRuns.map((run, index) => {
-                    const returns = run.result?.performance.returnComparison;
-                    const isSelected = run.presetKey === selectedPresetKey;
-                    const canLoad = Boolean(run.result);
-                    return (
-                      <tr
-                        key={run.presetKey}
-                        className={`border-t border-border/60 ${
-                          isSelected ? "bg-accent/10" : "hover:bg-surface-2"
-                        }`}
-                      >
-                        <td className="px-3 py-2 text-text-secondary">{index + 1}</td>
-                        <td className="px-3 py-2 text-text-primary">{run.label}</td>
-                        <td className="px-3 py-2 text-text-secondary">
-                          {run.suitableFor}
-                          {run.error ? ` | ${run.error}` : ""}
-                        </td>
-                        <td
-                          className={`px-3 py-2 text-right tabular-nums ${
-                            run.result && run.result.performance.profitPct >= 0
-                              ? "text-buy"
-                              : "text-sell"
-                          }`}
-                        >
-                          {run.result ? signedPct(run.result.performance.profitPct) : "-"}
-                        </td>
-                        <td
-                          className={`px-3 py-2 text-right tabular-nums ${
-                            returns && returns.strategyVsRandomPct >= 0 ? "text-buy" : "text-sell"
-                          }`}
-                        >
-                          {returns ? signedPct(returns.strategyVsRandomPct) : "-"}
-                        </td>
-                        <td
-                          className={`px-3 py-2 text-right tabular-nums ${
-                            returns && returns.strategyVsLumpPct >= 0 ? "text-buy" : "text-sell"
-                          }`}
-                        >
-                          {returns ? signedPct(returns.strategyVsLumpPct) : "-"}
-                        </td>
-                        <td
-                          className={`px-3 py-2 text-right tabular-nums ${
-                            returns && returns.strategyVsIntervalPct >= 0 ? "text-buy" : "text-sell"
-                          }`}
-                        >
-                          {returns ? signedPct(returns.strategyVsIntervalPct) : "-"}
-                        </td>
-                        <td className="px-3 py-2 text-right">
-                          <button
-                            type="button"
-                            onClick={() => onSelectPresetRun(run.presetKey)}
-                            disabled={!canLoad}
-                            title={run.error ?? undefined}
-                            className={`rounded border px-2 py-1 text-[10px] font-semibold uppercase tracking-wide ${
-                              isSelected
-                                ? "border-accent/50 bg-accent/20 text-accent"
-                                : "border-border bg-surface-2 text-text-secondary hover:text-text-primary"
-                            } disabled:cursor-not-allowed disabled:opacity-50`}
-                          >
-                            {!canLoad ? "N/A" : isSelected ? "Loaded" : "View"}
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </section>
         )}
-
-        <div className="flex-1 min-h-0 relative">
-          {barsLoading && (
-            <div className="absolute inset-0 flex items-center justify-center bg-surface-0/80 z-10 text-xs text-text-secondary">
-              Loading bars...
-            </div>
-          )}
-
-          {!barsLoading && !result && (
-            <div className="absolute inset-0 flex items-center justify-center text-xs text-text-secondary">
-              Set scale-in start/duration and scale-out start/duration, then run backtest
-            </div>
-          )}
-
-          {result && (
-            <div className="h-full min-h-0 border-t border-border flex flex-col">
-              <section className="shrink-0 border-b border-border bg-surface-1">
-                <div className="px-4 py-2 flex items-center gap-2">
-                  <div className="text-[11px] uppercase tracking-widest text-text-secondary font-semibold">
-                    Execution Chart
-                  </div>
-                  <div className="ml-auto flex items-center gap-3 text-[10px] uppercase tracking-wide">
-                    <span className="text-buy">Scale In (below)</span>
-                    <span className="text-sell">Scale Out (above)</span>
-                  </div>
-                </div>
-                <div className="h-[44vh] min-h-[280px] max-h-[520px]">
-                  <div className="relative h-full">
-                    <BacktestChart
-                      bars={bars}
-                      scaleInTrades={result.scaleIn.trades}
-                      scaleOutTrades={result.scaleOut.trades}
-                    />
-                    {strategySignals.length > 0 && (
-                      <div className="pointer-events-none absolute left-2 right-2 top-2 flex flex-wrap gap-1.5">
-                        {strategySignals.map((sw, i) => (
-                          <span
-                            key={`${sw.signal.type}-${i}`}
-                            className="rounded border border-border/80 bg-surface-0/80 px-2 py-0.5 text-[10px] text-text-primary backdrop-blur-[1px]"
-                          >
-                            {formatSignalTag(sw)}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </section>
-
-              <div className="flex-1 min-h-0 overflow-auto">
-                <PerformanceSummary result={result} compact />
-                <ResultSection title="Smart Scale-In Details" section={result.scaleIn} compact />
-                <ResultSection
-                  title="Smart Scale-Out Details"
-                  section={result.scaleOut}
-                  withTopBorder
-                  compact
-                />
-              </div>
-            </div>
-          )}
+        {running && (
+          <div className="shrink-0 px-4 py-2 text-xs text-text-secondary border-b border-border/40">
+            Running backtests…
+          </div>
+        )}
+        <div className="flex-1 min-h-0">
+          <RunQueueResults results={runQueueResults} />
         </div>
       </div>
     </div>
@@ -1441,30 +721,6 @@ function AboutPage() {
   );
 }
 
-function ResultSection({
-  title,
-  section,
-  withTopBorder = false,
-  compact = false,
-}: {
-  title: string;
-  section: DirectionalBacktestResult;
-  withTopBorder?: boolean;
-  compact?: boolean;
-}) {
-  return (
-    <section className={withTopBorder ? "border-t border-border" : ""}>
-      <div className="px-4 py-2 text-[11px] uppercase tracking-widest text-text-secondary font-semibold">{title}</div>
-      <BacktestMetrics section={section} compact={compact} />
-      <div className={`${compact ? "h-44" : "h-60"} border-t border-border`}>
-        <TradeTable trades={section.trades} direction={section.direction} compact={compact} />
-      </div>
-      {section.trades.length === 0 && (
-        <div className="px-4 py-3 text-xs text-text-secondary">No trades generated in this window.</div>
-      )}
-    </section>
-  );
-}
 
 function StatCard({
   label,
@@ -1486,35 +742,6 @@ function StatCard({
   );
 }
 
-function buildWatchlistAuthHeaders(extra?: Record<string, string>): Record<string, string> {
-  const headers: Record<string, string> = { ...(extra ?? {}) };
-  const token = readStoredAuthToken();
-  if (token) {
-    headers.Authorization = `Bearer ${token}`;
-  }
-  return headers;
-}
-
-function readStoredAuthToken(): string | null {
-  if (typeof window === "undefined") {
-    return null;
-  }
-
-  try {
-    const token = window.localStorage.getItem(AUTH_TOKEN_STORAGE_KEY);
-    if (typeof token !== "string") {
-      return null;
-    }
-    const normalized = token.trim();
-    return normalized.length > 0 ? normalized : null;
-  } catch {
-    return null;
-  }
-}
-
-function normalizeWatchlistAssetClass(assetClass: AssetClass | string | undefined): AssetClass {
-  return assetClass === "crypto" ? "crypto" : "stocks_etf";
-}
 
 function formatUsd(value: number): string {
   return value.toLocaleString(undefined, {
@@ -1540,75 +767,18 @@ function signedPct(value: number): string {
   return `${value >= 0 ? "+" : ""}${value.toFixed(2)}%`;
 }
 
-function getPresetRankingScore(
-  run: PresetBacktestRun,
-  metric: PresetRankingMetric
-): number {
-  if (!run.result) {
-    return Number.NEGATIVE_INFINITY;
-  }
 
-  const perf = run.result.performance;
-  const compare = perf.returnComparison;
-  const benchmark = run.result.benchmark;
-
-  if (metric === "vs_lump") return compare.strategyVsLumpPct;
-  if (metric === "vs_interval") return compare.strategyVsIntervalPct;
-  if (metric === "profit_pct") return perf.profitPct;
-  if (metric === "alpha_pct") {
-    return benchmark ? perf.profitPct - benchmark.profitPct : Number.NEGATIVE_INFINITY;
+function resolveIntradayFetchWindow(
+  form: StrategyForm
+): { startDate: string; endDate: string } | null {
+  if (form.timeframe !== "15Min") {
+    return null;
   }
-  return compare.strategyVsRandomPct;
-}
-
-function formatSignalTag(sw: SignalWeight): string {
-  const weightPct = Math.round(sw.weight * 100);
-  const base = SIGNAL_META[sw.signal.type]?.label ?? sw.signal.type;
-  const period = "period" in sw.signal ? sw.signal.period : null;
-  if (sw.signal.type === "bollinger_band") {
-    return `${base} (${weightPct}%, p${period}, ${sw.signal.std_dev}sd)`;
-  }
-  if (period != null) {
-    return `${base} (${weightPct}%, p${period})`;
-  }
-  return `${base} (${weightPct}%)`;
-}
-
-function summarizeSignals(signals: SignalWeight[]): string {
-  if (signals.length === 0) {
-    return "";
-  }
-  return signals
-    .map((sw) => {
-      const base = SIGNAL_META[sw.signal.type]?.label ?? sw.signal.type;
-      return `${base} ${Math.round(sw.weight * 100)}%`;
-    })
-    .join(" | ");
-}
-
-function makeStrategyId(form: StrategyForm): string {
-  const symbol = normalizeSymbol(form.symbol);
-  const windowTag =
-    form.strategyMode === "continuous_range"
-      ? `cont-${form.startDate}-${form.endDate}`
-      : `in${form.scaleInWindowDays}-out${form.scaleOutWindowDays}`;
-  const washRuleTag =
-    form.accountType === "taxable"
-      ? isLikelyCryptoSymbol(symbol)
-        ? "taxable-nowash"
-        : `wash${form.washSaleWindowDays}`
-      : "taxadv";
-  const signalPart = form.signals
-    .map((sw) => `${sw.signal.type}-${Math.round(sw.weight * 100)}`)
-    .join("_");
-  return [
-    symbol,
-    form.strategyMode,
-    windowTag,
-    `cad${form.cadenceDays}`,
-    washRuleTag,
-    signalPart,
-  ].join("-");
+  const windows = resolveBacktestWindows(form);
+  return {
+    startDate: windows.startDate,
+    endDate: addDaysIso(windows.scaleOutStartDate, windows.scaleOutWindowDays - 1),
+  };
 }
 
 function resolveBacktestWindows(form: StrategyForm): {
@@ -1647,6 +817,27 @@ function deriveInclusiveDaySpan(startDate: string, endDate: string): number {
   }
   const diffDays = Math.floor((endTs - startTs) / dayMs) + 1;
   return Math.max(1, diffDays);
+}
+
+function addDaysIso(isoDate: string, days: number): string {
+  const [year, month, day] = isoDate.split("-").map((v) => Number(v));
+  const dt = new Date(Date.UTC(year, month - 1, day + days));
+  return dt.toISOString().split("T")[0];
+}
+
+function rangeForStartDate(startDate: string): string {
+  const startTs = Date.parse(`${startDate}T00:00:00Z`);
+  if (!Number.isFinite(startTs)) return "2y";
+
+  const warmupDays = 90;
+  const daysBack = (Date.now() - startTs) / 86_400_000;
+
+  // Keep ~90 days of pre-start bars so indicators can warm up.
+  // If a selected range is too short to include that warmup, step up to the next range.
+  if (daysBack > 5 * 365 - warmupDays) return "max";
+  if (daysBack > 2 * 365 - warmupDays) return "5y";
+  if (daysBack > 365 - warmupDays) return "2y";
+  return "1y";
 }
 
 function normalizeSymbol(symbol: string): string {

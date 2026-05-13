@@ -2,6 +2,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import {
   EmailDispatchProfile,
   SmsDispatchProfile,
+  TelegramDispatchProfile,
   UserDispatchProfile,
   UserDispatchProfileInput,
 } from "./types";
@@ -103,12 +104,14 @@ function normalizeProfileInput(
   const enabled = input.enabled ?? existing?.enabled ?? true;
   const email = normalizeEmailChannel(input.email, existing?.email);
   const sms = normalizeSmsChannel(input.sms, existing?.sms);
+  const telegram = normalizeTelegramChannel(input.telegram, existing?.telegram);
 
   return {
     userId,
     enabled,
     email,
     sms,
+    telegram,
     createdAt: existing?.createdAt ?? now,
     updatedAt: now,
   };
@@ -124,6 +127,7 @@ function normalizePersistedProfile(raw: UserDispatchProfile): UserDispatchProfil
     enabled: raw.enabled !== false,
     email: normalizeEmailChannel(raw.email, undefined),
     sms: normalizeSmsChannel(raw.sms, undefined),
+    telegram: normalizeTelegramChannel(raw.telegram, undefined),
     createdAt,
     updatedAt,
   };
@@ -200,6 +204,40 @@ function normalizeSmsChannel(
   };
 }
 
+function normalizeTelegramChannel(
+  input: UserDispatchProfileInput["telegram"] | TelegramDispatchProfile | undefined,
+  existing?: TelegramDispatchProfile | null
+): TelegramDispatchProfile | null {
+  if (input === null) {
+    return null;
+  }
+
+  if (typeof input === "undefined") {
+    return existing ? cloneTelegram(existing) : null;
+  }
+
+  if (!input || typeof input !== "object") {
+    throw new Error("Telegram channel must be an object or null");
+  }
+
+  const chatId = "chatId" in input ? normalizeTelegramChatId(input.chatId) : existing?.chatId;
+  const enabled = "enabled" in input ? input.enabled !== false : existing?.enabled ?? true;
+
+  if (!chatId) {
+    if (enabled) {
+      throw new Error(
+        "Telegram chat ID is required when Telegram channel is enabled"
+      );
+    }
+    return null;
+  }
+
+  return {
+    enabled,
+    chatId,
+  };
+}
+
 function normalizeUserId(value: string): string {
   const normalized = value.trim();
   if (!normalized) {
@@ -262,6 +300,22 @@ function normalizeNullableName(value: unknown): string | null {
   return normalized;
 }
 
+function normalizeTelegramChatId(value: unknown): string {
+  if (typeof value !== "string") {
+    throw new Error("Telegram chat ID must be a string");
+  }
+
+  const normalized = value.trim();
+  if (!normalized) {
+    throw new Error("Telegram chat ID is required");
+  }
+  if (normalized.length > 200) {
+    throw new Error("Telegram chat ID is too long");
+  }
+
+  return normalized;
+}
+
 function asIso(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const parsed = new Date(value);
@@ -286,12 +340,20 @@ function cloneSms(sms: SmsDispatchProfile): SmsDispatchProfile {
   };
 }
 
+function cloneTelegram(telegram: TelegramDispatchProfile): TelegramDispatchProfile {
+  return {
+    enabled: telegram.enabled,
+    chatId: telegram.chatId,
+  };
+}
+
 function cloneProfile(profile: UserDispatchProfile): UserDispatchProfile {
   return {
     userId: profile.userId,
     enabled: profile.enabled,
     email: profile.email ? cloneEmail(profile.email) : null,
     sms: profile.sms ? cloneSms(profile.sms) : null,
+    telegram: profile.telegram ? cloneTelegram(profile.telegram) : null,
     createdAt: profile.createdAt,
     updatedAt: profile.updatedAt,
   };

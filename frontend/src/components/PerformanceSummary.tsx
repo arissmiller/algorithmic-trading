@@ -11,11 +11,19 @@ export default function PerformanceSummary({
   const bench = result.benchmark;
   const returns = perf.returnComparison;
   const tax = perf.tax;
+  const phase = result.phase;
 
   const alphaUsd = bench ? perf.profitUsd - bench.profitUsd : null;
   const alphaPct = bench ? perf.profitPct - bench.profitPct : null;
 
   const benchmarkLabel = bench?.symbol === "^GSPC" ? "S&P 500" : bench?.symbol;
+
+  const cycleLabel =
+    phase === "scale_in"
+      ? `Buying: ${perf.startDate} → ${perf.endDate}`
+      : phase === "scale_out"
+        ? `Selling: ${perf.scaleOutStartDate} → ${perf.endDate}`
+        : `Cycle: ${perf.startDate} → ${perf.scaleOutStartDate} (scale-out starts) → ${perf.endDate}`;
 
   return (
     <section className="border-b border-border bg-surface-1">
@@ -28,69 +36,105 @@ export default function PerformanceSummary({
           compact ? "p-3 md:grid-cols-3 lg:grid-cols-4" : "p-4 md:grid-cols-2 lg:grid-cols-3"
         }`}
       >
-        <Card label="Avg Cost" value={`$${fmt2(perf.avgCost)}`} compact={compact} />
+        {phase !== "scale_out" && (
+          <Card label="Avg Cost" value={`$${fmt2(perf.avgCost)}`} compact={compact} />
+        )}
+        {phase !== "scale_in" && (
+          <Card
+            label="Avg Sale Price"
+            value={`$${fmt2(perf.avgSalePrice)}`}
+            pos={phase === "scale_out" ? undefined : perf.avgSalePrice >= perf.avgCost}
+            compact={compact}
+          />
+        )}
+        {phase === "scale_in" && (
+          <Card
+            label="Amount Invested"
+            value={`$${fmt2(perf.investedAmount)}`}
+            sub={`${perf.sharesBought.toFixed(4)} shares accumulated`}
+            compact={compact}
+          />
+        )}
+        {phase === "scale_out" && (
+          <Card
+            label="Proceeds"
+            value={`$${fmt2(perf.proceeds)}`}
+            compact={compact}
+          />
+        )}
+        {!phase && (
+          <>
+            <Card
+              label="Strategy Profit ($)"
+              value={`$${fmt2(perf.profitUsd)}`}
+              pos={perf.profitUsd >= 0}
+              sub={`Proceeds $${fmt2(perf.proceeds)} on $${fmt2(perf.investedAmount)} invested`}
+              compact={compact}
+            />
+            <Card
+              label="Strategy Return (%)"
+              value={`${signedPct(perf.profitPct)}`}
+              pos={perf.profitPct >= 0}
+              compact={compact}
+            />
+            <Card
+              label="Gross Realized P/L ($)"
+              value={`$${fmt2(tax.grossRealizedPnL)}`}
+              pos={tax.grossRealizedPnL >= 0}
+              sub={formatAccountType(tax.accountType, tax.washRuleEligibleAsset)}
+              compact={compact}
+            />
+            <Card
+              label="Wash Loss Deferred ($)"
+              value={`$${fmt2(tax.disallowedLossDeferred)}`}
+              pos={tax.disallowedLossDeferred <= 0}
+              sub={
+                tax.washRuleApplied
+                  ? `${tax.washSaleWindowDays}-day window`
+                  : tax.washRuleEligibleAsset
+                    ? "Wash-sale rule not applied in tax-advantaged mode"
+                    : "Wash-sale rule not applied for crypto spot assets"
+              }
+              compact={compact}
+            />
+            <Card
+              label="Wash-Adjusted Realized ($)"
+              value={`$${fmt2(tax.washAdjustedRealizedPnL)}`}
+              pos={tax.washAdjustedRealizedPnL >= 0}
+              sub={
+                tax.washRuleApplied
+                  ? `${tax.washSaleEventCount} wash-sale event${tax.washSaleEventCount === 1 ? "" : "s"}`
+                  : "No wash-sale adjustments applied"
+              }
+              compact={compact}
+            />
+            <Card
+              label="Lump Sum Return (%)"
+              value={signedPct(returns.lumpSum.profitPct)}
+              pos={returns.lumpSum.profitPct >= 0}
+              sub={`Strategy ${signedPct(returns.strategyVsLumpPct)} vs lump`}
+              compact={compact}
+            />
+            <Card
+              label="Random Return (%)"
+              value={signedPct(returns.randomEnsemble.profitPct)}
+              pos={returns.randomEnsemble.profitPct >= 0}
+              sub={`Strategy ${signedPct(returns.strategyVsRandomPct)} vs random`}
+              compact={compact}
+            />
+          </>
+        )}
         <Card
-          label="Avg Sale Price"
-          value={`$${fmt2(perf.avgSalePrice)}`}
-          pos={perf.avgSalePrice >= perf.avgCost}
+          label="Smart vs Lump Sum (%)"
+          value={signedPct(returns.strategyVsLumpPct)}
+          pos={returns.strategyVsLumpPct >= 0}
+          sub={phase === "scale_in" ? "buy price improvement" : phase === "scale_out" ? "sell price improvement" : undefined}
           compact={compact}
         />
         <Card
-          label="Strategy Profit ($)"
-          value={`$${fmt2(perf.profitUsd)}`}
-          pos={perf.profitUsd >= 0}
-          sub={`Proceeds $${fmt2(perf.proceeds)} on $${fmt2(perf.investedAmount)} invested`}
-          compact={compact}
-        />
-        <Card
-          label="Strategy Return (%)"
-          value={`${signedPct(perf.profitPct)}`}
-          pos={perf.profitPct >= 0}
-          compact={compact}
-        />
-        <Card
-          label="Gross Realized P/L ($)"
-          value={`$${fmt2(tax.grossRealizedPnL)}`}
-          pos={tax.grossRealizedPnL >= 0}
-          sub={formatAccountType(tax.accountType, tax.washRuleEligibleAsset)}
-          compact={compact}
-        />
-        <Card
-          label="Wash Loss Deferred ($)"
-          value={`$${fmt2(tax.disallowedLossDeferred)}`}
-          pos={tax.disallowedLossDeferred <= 0}
-          sub={
-            tax.washRuleApplied
-              ? `${tax.washSaleWindowDays}-day window`
-              : tax.washRuleEligibleAsset
-                ? "Wash-sale rule not applied in tax-advantaged mode"
-                : "Wash-sale rule not applied for crypto spot assets"
-          }
-          compact={compact}
-        />
-        <Card
-          label="Wash-Adjusted Realized ($)"
-          value={`$${fmt2(tax.washAdjustedRealizedPnL)}`}
-          pos={tax.washAdjustedRealizedPnL >= 0}
-          sub={
-            tax.washRuleApplied
-              ? `${tax.washSaleEventCount} wash-sale event${tax.washSaleEventCount === 1 ? "" : "s"}`
-              : "No wash-sale adjustments applied"
-          }
-          compact={compact}
-        />
-        <Card
-          label="Lump Sum Return (%)"
-          value={signedPct(returns.lumpSum.profitPct)}
-          pos={returns.lumpSum.profitPct >= 0}
-          sub={`Strategy ${signedPct(returns.strategyVsLumpPct)} vs lump`}
-          compact={compact}
-        />
-        <Card
-          label="Random Return (%)"
-          value={signedPct(returns.randomEnsemble.profitPct)}
-          pos={returns.randomEnsemble.profitPct >= 0}
-          sub={`Strategy ${signedPct(returns.strategyVsRandomPct)} vs random`}
+          label="Smart vs Random (%)"
+          value={signedPct(returns.strategyVsRandomPct)}
+          pos={returns.strategyVsRandomPct >= 0}
           compact={compact}
         />
         <Card
@@ -100,17 +144,19 @@ export default function PerformanceSummary({
           sub={bench ? `$${fmt2(bench.profitUsd)} profit` : "Benchmark unavailable for this run"}
           compact={compact}
         />
-        <Card
-          label={bench ? `Alpha vs ${benchmarkLabel}` : "Alpha vs S&P 500"}
-          value={bench && alphaPct !== null ? signedPct(alphaPct) : "n/a"}
-          pos={bench && alphaPct !== null ? alphaPct >= 0 : undefined}
-          sub={bench && alphaUsd !== null ? `$${fmt2(alphaUsd)} relative` : "Run benchmark data to compare"}
-          compact={compact}
-        />
+        {!phase && (
+          <Card
+            label={bench ? `Alpha vs ${benchmarkLabel}` : "Alpha vs S&P 500"}
+            value={bench && alphaPct !== null ? signedPct(alphaPct) : "n/a"}
+            pos={bench && alphaPct !== null ? alphaPct >= 0 : undefined}
+            sub={bench && alphaUsd !== null ? `$${fmt2(alphaUsd)} relative` : "Run benchmark data to compare"}
+            compact={compact}
+          />
+        )}
       </div>
 
       <div className={`px-4 ${compact ? "pb-2 text-[10px]" : "pb-3 text-[11px]"} text-text-secondary`}>
-        {`Cycle: ${perf.startDate} → ${perf.scaleOutStartDate} (scale-out starts) → ${perf.endDate}`}
+        {cycleLabel}
       </div>
 
       <div className={`border-t border-border px-4 ${compact ? "py-2" : "py-3"}`}>

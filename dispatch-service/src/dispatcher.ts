@@ -6,6 +6,7 @@ import {
   DispatchEvent,
   DispatchableTradingSignal,
   EmailDispatchProfile,
+  TelegramDispatchProfile,
   SignalDispatchResult,
   TradingOrderResult,
   UserDispatchProfile,
@@ -81,6 +82,11 @@ export class SignalDispatcher {
 
       if (channel === "sms") {
         channelResults.push(await this.dispatchSms(signal, profile));
+        continue;
+      }
+
+      if (channel === "telegram") {
+        channelResults.push(await this.dispatchTelegram(signal, profile));
       }
     }
 
@@ -205,6 +211,31 @@ export class SignalDispatcher {
     };
   }
 
+  private async dispatchTelegram(
+    signal: DispatchableTradingSignal,
+    profile: UserDispatchProfile
+  ): Promise<ChannelDispatchResult> {
+    const telegram = profile.telegram;
+    if (!telegram || !telegram.enabled) {
+      return {
+        channel: "telegram",
+        status: "skipped",
+        error: "Telegram channel is disabled",
+        providerMessageId: null,
+      };
+    }
+
+    const message = buildTelegramMessage(signal, telegram);
+    const delivery = await this.delivery.sendTelegram(message);
+
+    return {
+      channel: "telegram",
+      status: delivery.sent ? "sent" : delivery.skipped ? "skipped" : "failed",
+      error: delivery.skipped ? null : delivery.error,
+      providerMessageId: delivery.providerMessageId,
+    };
+  }
+
   private pushEvent(signal: DispatchableTradingSignal, result: SignalDispatchResult): void {
     this.events.unshift({
       receivedAt: new Date().toISOString(),
@@ -259,6 +290,10 @@ function resolveEnabledChannels(profile: UserDispatchProfile): DispatchChannel[]
 
   if (profile.sms?.enabled) {
     out.push("sms");
+  }
+
+  if (profile.telegram?.enabled) {
+    out.push("telegram");
   }
 
   return out;
@@ -321,6 +356,24 @@ function buildSmsMessage(signal: DispatchableTradingSignal): string {
   ].join("\n");
 }
 
+function buildTelegramMessage(
+  signal: DispatchableTradingSignal,
+  telegram: TelegramDispatchProfile
+): {
+  chatId: string;
+  body: string;
+} {
+  const header = `${signal.action.toUpperCase()} ${signal.symbol} (${signal.timeframe})`;
+  const score = `Score: ${signal.signalScore.toFixed(3)}`;
+  const timing = `Bar: ${signal.barTime}`;
+  const rationale = trimToLength(signal.rationale.replaceAll(/\s+/g, " "), 280);
+
+  return {
+    chatId: telegram.chatId,
+    body: [`[Smart Scale] ${header}`, score, timing, rationale].join("\n"),
+  };
+}
+
 function buildSkippedResult(reason: string, profileUserId: string): SignalDispatchResult {
   return {
     status: "skipped",
@@ -374,7 +427,7 @@ function normalizeChannelList(raw: unknown): DispatchChannel[] {
 
   const out: DispatchChannel[] = [];
   for (const value of raw) {
-    if (value === "email" || value === "sms") {
+    if (value === "email" || value === "sms" || value === "telegram") {
       if (!out.includes(value)) {
         out.push(value);
       }

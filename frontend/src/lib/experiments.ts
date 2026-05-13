@@ -44,10 +44,10 @@ export function summarizeExperiment(symbolResults: SymbolWalkForwardResult[]): E
   for (const symbolResult of symbolResults) {
     for (const run of symbolResult.runs) {
       observations += 1;
-      inVsLumpTotal += run.result.scaleIn.comparison.smartVsLumpPct;
-      inVsRandomTotal += run.result.scaleIn.comparison.smartVsRandomPct;
-      outVsLumpTotal += run.result.scaleOut.comparison.smartVsLumpPct;
-      outVsRandomTotal += run.result.scaleOut.comparison.smartVsRandomPct;
+      inVsLumpTotal += run.result.scaleIn?.comparison.smartVsLumpPct ?? 0;
+      inVsRandomTotal += run.result.scaleIn?.comparison.smartVsRandomPct ?? 0;
+      outVsLumpTotal += run.result.scaleOut?.comparison.smartVsLumpPct ?? 0;
+      outVsRandomTotal += run.result.scaleOut?.comparison.smartVsRandomPct ?? 0;
     }
   }
 

@@ -180,11 +180,11 @@ export interface PublicUserWatchlistEntry {
 export function getPublicWatchlistUsers(): PublicUserWatchlistEntry[] {
   const byUser = new Map<string, { displayName: string; watchlists: UserWatchlist[] }>();
   for (const wl of watchlists.values()) {
-    const authUserId = wl.userId.split(":wl-")[0] ?? wl.userId;
-    let entry = byUser.get(authUserId);
+    const ownerId = wl.userId.split(":wl-")[0] ?? wl.userId;
+    let entry = byUser.get(ownerId);
     if (!entry) {
       entry = { displayName: wl.displayName || "Anonymous", watchlists: [] };
-      byUser.set(authUserId, entry);
+      byUser.set(ownerId, entry);
     }
     if (wl.displayName) entry.displayName = wl.displayName;
     entry.watchlists.push(wl);
@@ -275,24 +275,8 @@ export async function runWatchlistScanNow(
   await runWatchlistTick("1Day");
 }
 
-export async function runWatchlistScanNowForUser(
-  userId: string,
-  timeframe?: WatchlistExecutionConfig["timeframe"]
-): Promise<void> {
-  const normalizedUserId = normalizeUserId(userId);
-
-  if (timeframe) {
-    await runWatchlistTick(timeframe, normalizedUserId);
-    return;
-  }
-
-  await runWatchlistTick("1Hour", normalizedUserId);
-  await runWatchlistTick("1Day", normalizedUserId);
-}
-
 async function runWatchlistTick(
-  timeframe: WatchlistExecutionConfig["timeframe"],
-  userIdScope?: string
+  timeframe: WatchlistExecutionConfig["timeframe"]
 ): Promise<void> {
   const startedAt = new Date().toISOString();
   lastRunByTimeframe[timeframe] = startedAt;
@@ -300,8 +284,7 @@ async function runWatchlistTick(
   const scopedWatchlists = Array.from(watchlists.values()).filter(
     (watchlist) =>
       watchlist.enabled &&
-      watchlist.config.timeframe === timeframe &&
-      (!userIdScope || isWatchlistOwnedByUser(watchlist.userId, userIdScope))
+      watchlist.config.timeframe === timeframe
   );
 
   if (scopedWatchlists.length === 0) {
@@ -385,10 +368,6 @@ async function runWatchlistTick(
     lastError = err instanceof Error ? err.message : String(err);
     console.error(`[watchlist-monitor] tick error (${timeframe}): ${lastError}`);
   }
-}
-
-function isWatchlistOwnedByUser(watchlistUserId: string, authUserId: string): boolean {
-  return watchlistUserId === authUserId || watchlistUserId.startsWith(`${authUserId}:`);
 }
 
 async function fetchBarsForSymbols(

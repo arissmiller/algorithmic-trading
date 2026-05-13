@@ -1,4 +1,4 @@
-export type DispatchChannel = "email" | "sms";
+export type DispatchChannel = "email" | "sms" | "telegram";
 
 export interface DispatchableTradingSignal {
   id: string;
@@ -25,11 +25,17 @@ export interface SmsDispatchProfile {
   phoneE164: string;
 }
 
+export interface TelegramDispatchProfile {
+  enabled: boolean;
+  chatId: string;
+}
+
 export interface UserDispatchProfile {
   userId: string;
   enabled: boolean;
   email: EmailDispatchProfile | null;
   sms: SmsDispatchProfile | null;
+  telegram: TelegramDispatchProfile | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -44,6 +50,10 @@ export interface UserDispatchProfileInput {
   sms?: {
     enabled?: boolean;
     phoneE164?: string;
+  } | null;
+  telegram?: {
+    enabled?: boolean;
+    chatId?: string;
   } | null;
 }
 

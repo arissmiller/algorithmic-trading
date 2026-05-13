@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { readFile, writeFile, unlink } from "node:fs/promises";
 import { ApiHttpError, fetchAlpacaAccountSnapshot, fetchMarketBars } from "./core";
-import { compositeScore, scoreRationale, SignalWeight, Bar } from "./botSignals";
+import { compositeScore, scoreRationale, SignalWeight, SignalType, Bar } from "./botSignals";
+import { BOT_TUNING, BOT_TUNING_PROFILES, BotTuningProfileKey } from "./botTuning";
 
 const STATE_FILE = new URL("./bot-state.json", import.meta.url).pathname;
 
@@ -21,19 +22,42 @@ const ALPACA_API_KEY_ID = (
 const ALPACA_API_SECRET_KEY = (
   process.env.APCA_API_SECRET_KEY ?? process.env.ALPACA_API_SECRET_KEY ?? ""
 ).trim();
+const DAY_MS = 86_400_000;
 
 // ── Types ─────────────────────────────────────────────────────────────────────
+
+export interface BotStartRequest {
+  label?: string;
+  symbol: string;
+  profile?: BotTuningProfileKey;
+  startDate?: string;
+  durationDays?: number;
+  allocationMode?: "fixed_usd" | "pct_of_cash";
+  allocationFixed?: number;
+  allocationPct?: number;
+}
 
 export interface BotConfig {
   label: string;
   symbol: string;
+  profile: BotTuningProfileKey;
   timeframe: "1Day" | "1Hour";
   signals: SignalWeight[];
+  objective: "scale_in" | "selloff";
+  startDate: string;
+  durationDays: number;
   allocationMode: "fixed_usd" | "pct_of_cash";
   allocationFixed: number;
   allocationPct: number;
   buyThreshold: number;
   sellThreshold: number;
+  crashDetection?: CrashDetectionConfig;
+}
+
+export interface CrashDetectionConfig {
+  enabled: boolean;
+  threshold: number;
+  signals: SignalWeight[];
 }
 
 export interface BotPosition {
@@ -68,12 +92,18 @@ export interface BotStatus {
   trades: BotTrade[];
   lastSignalScore: number | null;
   lastSignalRationale: string | null;
+  lastCrashScore: number | null;
+  lastCrashRationale: string | null;
   lastTickAt: string | null;
   lastError: string | null;
   availableCash: number | null;
 }
 
 interface BotInstance extends BotStatus {
+  lastActionBarTsBySide: {
+    buy: string | null;
+    sell: string | null;
+  };
   timer: ReturnType<typeof setInterval> | null;
 }
 
@@ -89,7 +119,8 @@ const bots = new Map<string, BotInstance>();
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
-export function startBot(cfg: BotConfig, existingId?: string): string {
+export function startBot(cfg: BotStartRequest, existingId?: string): string {
+  const normalizedCfg = normalizeBotConfig(cfg);
   const id = existingId ?? randomUUID();
 
   // Stop existing instance with this id if any
@@ -99,22 +130,28 @@ export function startBot(cfg: BotConfig, existingId?: string): string {
   const instance: BotInstance = {
     id,
     running: true,
-    config: cfg,
+    config: normalizedCfg,
     position: existing?.position ?? null,
     trades: existing?.trades ?? [],
     lastSignalScore: existing?.lastSignalScore ?? null,
     lastSignalRationale: existing?.lastSignalRationale ?? null,
+    lastCrashScore: existing?.lastCrashScore ?? null,
+    lastCrashRationale: existing?.lastCrashRationale ?? null,
     lastTickAt: existing?.lastTickAt ?? null,
     lastError: null,
     availableCash: existing?.availableCash ?? null,
+    lastActionBarTsBySide:
+      existing?.lastActionBarTsBySide ?? deriveLastActionBarTsBySide(existing?.trades ?? []),
     timer: null,
   };
 
   bots.set(id, instance);
-  instance.timer = setInterval(() => void tick(id), POLL_INTERVALS[cfg.timeframe]);
+  instance.timer = setInterval(() => void tick(id), POLL_INTERVALS[normalizedCfg.timeframe]);
   void tick(id);
   void persistAllBots();
-  console.log(`[bot:${id.slice(0, 8)}] started — ${cfg.symbol} ${cfg.timeframe} "${cfg.label}"`);
+  console.log(
+    `[bot:${id.slice(0, 8)}] started — ${normalizedCfg.symbol} ${normalizedCfg.timeframe} "${normalizedCfg.label}"`
+  );
   return id;
 }
 
@@ -155,18 +192,21 @@ export async function loadPersistedState(): Promise<void> {
       const placeholder: BotInstance = {
         id: entry.id,
         running: false,
-        config: entry.config,
+        config: normalizeBotConfig(entry.config),
         position: null,
         trades: Array.isArray(entry.trades) ? entry.trades : [],
         lastSignalScore: null,
         lastSignalRationale: null,
+        lastCrashScore: null,
+        lastCrashRationale: null,
         lastTickAt: null,
         lastError: null,
         availableCash: null,
+        lastActionBarTsBySide: deriveLastActionBarTsBySide(entry.trades ?? []),
         timer: null,
       };
       bots.set(entry.id, placeholder);
-      startBot(entry.config, entry.id);
+      startBot(normalizeBotConfig(entry.config), entry.id);
       console.log(`[bot:${entry.id.slice(0, 8)}] restored "${entry.config.label}" (${entry.trades.length} trades)`);
     }
   } catch {
@@ -229,6 +269,23 @@ async function tick(id: string): Promise<void> {
   const cfg = instance.config;
 
   try {
+    const nowIso = new Date().toISOString();
+    const phase = resolveCampaignPhase(cfg.startDate, cfg.durationDays, Date.now());
+    instance.lastTickAt = nowIso;
+    instance.lastError = null;
+
+    if (phase !== "active") {
+      const endDate = addDaysIso(cfg.startDate, cfg.durationDays - 1);
+      instance.lastSignalScore = null;
+      instance.lastSignalRationale =
+        phase === "pending"
+          ? `Campaign pending. Starts ${cfg.startDate} (duration ${cfg.durationDays}d, ends ${endDate}).`
+          : `Campaign completed on ${endDate}.`;
+      instance.lastCrashScore = null;
+      instance.lastCrashRationale = null;
+      return;
+    }
+
     const range = cfg.timeframe === "1Hour" ? null : "2y";
     const { bars: rawBars } = await fetchMarketBars({
       symbol: cfg.symbol,
@@ -246,12 +303,26 @@ async function tick(id: string): Promise<void> {
     }));
 
     const lastIdx = bars.length - 1;
-    const score = compositeScore(cfg.signals, bars, lastIdx);
-    const rationale = scoreRationale(cfg.signals, bars, lastIdx, false);
+    const tunedSignals = tuneSignalWeightsByHistory(cfg.signals, bars);
+    const score = compositeScore(tunedSignals, bars, lastIdx);
+    const rationale = scoreRationale(tunedSignals, bars, lastIdx, false);
+    const cadenceDays = deriveCadenceDays(cfg.durationDays);
+    const currentBarTs = bars[lastIdx].t;
     instance.lastSignalScore = score;
     instance.lastSignalRationale = rationale;
-    instance.lastTickAt = new Date().toISOString();
-    instance.lastError = null;
+
+    let crashDetected = false;
+    if (cfg.crashDetection?.enabled) {
+      const tunedCrashSignals = tuneSignalWeightsByHistory(cfg.crashDetection.signals, bars);
+      const crashScore = compositeScore(tunedCrashSignals, bars, lastIdx);
+      const crashRationale = scoreRationale(tunedCrashSignals, bars, lastIdx, false);
+      instance.lastCrashScore = crashScore;
+      instance.lastCrashRationale = crashRationale;
+      crashDetected = crashScore >= cfg.crashDetection.threshold;
+    } else {
+      instance.lastCrashScore = null;
+      instance.lastCrashRationale = null;
+    }
 
     console.log(`[bot:${id.slice(0, 8)}] ${cfg.symbol} ${cfg.timeframe} score=${score.toFixed(3)}`);
 
@@ -260,15 +331,40 @@ async function tick(id: string): Promise<void> {
     const snapshot = await fetchAlpacaAccountSnapshot();
     instance.availableCash = snapshot.account.cash;
 
-    if (score >= cfg.buyThreshold && !instance.position) {
+    if (
+      cfg.objective === "scale_in" &&
+      score >= cfg.buyThreshold &&
+      shouldPlaceTrade(instance, "buy", currentBarTs, cadenceDays)
+    ) {
       const amount = resolveAllocationAmount(cfg, instance.availableCash);
       if (amount < 1) {
         instance.lastError = `Allocation too small: $${amount.toFixed(2)}`;
         return;
       }
-      await placeBuyOrder(instance, amount, score, rationale, bars[lastIdx].c);
-    } else if (score <= cfg.sellThreshold && instance.position && instance.position.qty > 0) {
-      await placeSellOrder(instance, instance.position.qty, score, rationale, bars[lastIdx].c);
+      await placeBuyOrder(instance, amount, score, rationale, bars[lastIdx].c, currentBarTs);
+      return;
+    }
+
+    if (
+      cfg.objective === "selloff" &&
+      instance.position &&
+      instance.position.qty > 0 &&
+      shouldPlaceTrade(instance, "sell", currentBarTs, cadenceDays)
+    ) {
+      if (crashDetected) {
+        await placeSellOrder(
+          instance,
+          instance.position.qty,
+          score,
+          `Crash selloff trigger (${Math.round((instance.lastCrashScore ?? 0) * 100)}%): ${instance.lastCrashRationale ?? rationale}`,
+          bars[lastIdx].c,
+          currentBarTs
+        );
+        return;
+      }
+      if (score <= cfg.sellThreshold) {
+        await placeSellOrder(instance, instance.position.qty, score, rationale, bars[lastIdx].c, currentBarTs);
+      }
     }
   } catch (err) {
     instance.lastError = err instanceof Error ? err.message : String(err);
@@ -283,7 +379,8 @@ async function placeBuyOrder(
   notional: number,
   signalScore: number,
   rationale: string,
-  currentPrice: number
+  currentPrice: number,
+  barTs: string
 ): Promise<void> {
   const body = {
     symbol: normalizeAlpacaCryptoSymbol(instance.config.symbol),
@@ -306,6 +403,7 @@ async function placeBuyOrder(
     status: result.error ? "error" : "submitted",
     errorMsg: result.error,
   });
+  instance.lastActionBarTsBySide.buy = barTs;
   void persistAllBots();
   console.log(`[bot:${instance.id.slice(0, 8)}] buy $${notional.toFixed(2)} ${instance.config.symbol}`);
 }
@@ -315,7 +413,8 @@ async function placeSellOrder(
   qty: number,
   signalScore: number,
   rationale: string,
-  currentPrice: number
+  currentPrice: number,
+  barTs: string
 ): Promise<void> {
   const body = {
     symbol: normalizeAlpacaCryptoSymbol(instance.config.symbol),
@@ -338,6 +437,7 @@ async function placeSellOrder(
     status: result.error ? "error" : "submitted",
     errorMsg: result.error,
   });
+  instance.lastActionBarTsBySide.sell = barTs;
   void persistAllBots();
   console.log(`[bot:${instance.id.slice(0, 8)}] sell ${qty} ${instance.config.symbol}`);
 }
@@ -404,6 +504,263 @@ function resolveAllocationAmount(cfg: BotConfig, cash: number): number {
     return Math.max(0, (cfg.allocationPct / 100) * cash);
   }
   return Math.max(0, cfg.allocationFixed);
+}
+
+function normalizeBotConfig(input: BotStartRequest | BotConfig): BotConfig {
+  const symbol = normalizeAlpacaCryptoSymbol(input.symbol);
+  const profileKey =
+    input.profile && input.profile in BOT_TUNING_PROFILES
+      ? input.profile
+      : BOT_TUNING.defaults.profile;
+  const profile = BOT_TUNING_PROFILES[profileKey];
+  const timeframe = profile.timeframe;
+  const objective = profile.objective;
+  const durationDays = Math.max(1, Math.round(input.durationDays || profile.durationDays));
+  const startDate = normalizeIsoDate(input.startDate) ?? new Date().toISOString().slice(0, 10);
+  const allocationMode = input.allocationMode === "fixed_usd" ? "fixed_usd" : "pct_of_cash";
+  const allocationFixed =
+    typeof input.allocationFixed === "number" && Number.isFinite(input.allocationFixed)
+      ? Math.max(0, input.allocationFixed)
+      : 0;
+  const allocationPct =
+    typeof input.allocationPct === "number" && Number.isFinite(input.allocationPct)
+      ? clamp(input.allocationPct, 0, 100)
+      : 0;
+  const buyThreshold = normalizeThreshold(profile.buyThreshold, BOT_TUNING.defaults.buyThreshold);
+  const sellThreshold = normalizeThreshold(profile.sellThreshold, BOT_TUNING.defaults.sellThreshold);
+  const signals = normalizeSignalWeights(profile.signals);
+
+  const crashDetection = profile.crashDetection?.enabled
+      ? {
+          enabled: true,
+          threshold: normalizeThreshold(
+            profile.crashDetection?.threshold,
+            BOT_TUNING.crashDetection.defaultThreshold
+          ),
+          signals: normalizeSignalWeights(
+            profile.crashDetection?.signals?.length ? profile.crashDetection.signals : profile.signals
+          ),
+        }
+      : undefined;
+
+  return {
+    ...input,
+    label: (input.label ?? "").trim() || profile.label,
+    symbol,
+    profile: profile.key,
+    timeframe,
+    signals,
+    objective,
+    startDate,
+    durationDays,
+    allocationMode,
+    allocationFixed,
+    allocationPct,
+    buyThreshold,
+    sellThreshold,
+    crashDetection,
+  };
+}
+
+function normalizeSignalWeights(signals: SignalWeight[]): SignalWeight[] {
+  if (!Array.isArray(signals) || signals.length === 0) {
+    return [];
+  }
+  const positive = signals
+    .filter((sw) => sw && sw.signal && Number.isFinite(sw.weight) && sw.weight > 0)
+    .map((sw) => ({
+      signal: cloneSignal(sw.signal),
+      weight: sw.weight,
+    }));
+  if (positive.length === 0) {
+    return [];
+  }
+  const total = positive.reduce((sum, sw) => sum + sw.weight, 0);
+  return positive.map((sw) => ({ signal: sw.signal, weight: sw.weight / total }));
+}
+
+function cloneSignal(signal: SignalType): SignalType {
+  if (signal.type === "bollinger_band") {
+    return {
+      type: "bollinger_band",
+      period: Math.max(2, Math.round(signal.period)),
+      std_dev: Math.max(0.1, signal.std_dev),
+    };
+  }
+  return {
+    ...signal,
+    period: Math.max(2, Math.round(signal.period)),
+  };
+}
+
+function normalizeThreshold(value: number | undefined, fallback: number): number {
+  if (!Number.isFinite(value)) return fallback;
+  return clamp(value!, 0, 1);
+}
+
+function resolveCampaignPhase(
+  startDate: string,
+  durationDays: number,
+  nowMs: number
+): "pending" | "active" | "expired" {
+  const startTs = Date.parse(`${startDate}T00:00:00Z`);
+  if (!Number.isFinite(startTs)) return "pending";
+  const endExclusiveTs = startTs + Math.max(1, durationDays) * DAY_MS;
+  if (nowMs < startTs) return "pending";
+  if (nowMs >= endExclusiveTs) return "expired";
+  return "active";
+}
+
+function deriveCadenceDays(durationDays: number): number {
+  const raw = Math.round(Math.max(1, durationDays) / BOT_TUNING.cadence.durationDivisor);
+  return clampInt(raw, BOT_TUNING.cadence.minDays, BOT_TUNING.cadence.maxDays);
+}
+
+function deriveLastActionBarTsBySide(trades: BotTrade[]): { buy: string | null; sell: string | null } {
+  let buy: string | null = null;
+  let sell: string | null = null;
+  for (const trade of trades) {
+    if (!trade?.date) continue;
+    if (trade.side === "buy" && !buy) buy = trade.date;
+    if (trade.side === "sell" && !sell) sell = trade.date;
+    if (buy && sell) break;
+  }
+  return { buy, sell };
+}
+
+function shouldPlaceTrade(
+  instance: BotInstance,
+  side: "buy" | "sell",
+  currentBarTs: string,
+  cadenceDays: number
+): boolean {
+  const last = instance.lastActionBarTsBySide[side];
+  if (!last) return true;
+  const lastTs = Date.parse(last);
+  const nextTs = Date.parse(currentBarTs);
+  if (!Number.isFinite(lastTs) || !Number.isFinite(nextTs)) return true;
+  return nextTs - lastTs >= cadenceDays * DAY_MS;
+}
+
+function tuneSignalWeightsByHistory(signals: SignalWeight[], bars: Bar[]): SignalWeight[] {
+  const normalized = normalizeSignalWeights(signals);
+  if (normalized.length === 0) {
+    return normalized;
+  }
+
+  const lookbackBars = BOT_TUNING.historyWeighting.lookbackBars;
+  const startIdx = Math.max(0, bars.length - lookbackBars);
+  const sampleCount = Math.max(0, bars.length - startIdx - 1);
+  if (sampleCount < BOT_TUNING.historyWeighting.minSamples) {
+    return normalized;
+  }
+
+  const adjusted = normalized.map((sw) => {
+    const edge = computeSignalEdge(sw.signal, bars, startIdx, bars.length - 2);
+    const multiplier = clamp(
+      1 + edge * BOT_TUNING.historyWeighting.correlationScale,
+      BOT_TUNING.historyWeighting.minMultiplier,
+      BOT_TUNING.historyWeighting.maxMultiplier
+    );
+    return {
+      signal: cloneSignal(sw.signal),
+      baseWeight: sw.weight,
+      tunedWeight: sw.weight * multiplier,
+    };
+  });
+
+  const tunedSum = adjusted.reduce((sum, row) => sum + row.tunedWeight, 0);
+  if (tunedSum <= 0) {
+    return normalized;
+  }
+
+  const blend = BOT_TUNING.historyWeighting.blend;
+  const blended = adjusted.map((row) => {
+    const tunedNormalized = row.tunedWeight / tunedSum;
+    return {
+      signal: row.signal,
+      weight: (1 - blend) * row.baseWeight + blend * tunedNormalized,
+    };
+  });
+
+  const finalSum = blended.reduce((sum, row) => sum + row.weight, 0);
+  if (finalSum <= 0) return normalized;
+  return blended.map((row) => ({
+    signal: row.signal,
+    weight: row.weight / finalSum,
+  }));
+}
+
+function computeSignalEdge(
+  signal: SignalType,
+  bars: Bar[],
+  startIdx: number,
+  endIdx: number
+): number {
+  const xs: number[] = [];
+  const ys: number[] = [];
+  for (let i = startIdx; i <= endIdx; i++) {
+    const now = bars[i];
+    const next = bars[i + 1];
+    if (!now || !next || now.c <= 0) continue;
+    const x = compositeScore([{ signal, weight: 1 }], bars, i);
+    const y = (next.c - now.c) / now.c;
+    if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+    xs.push(x);
+    ys.push(y);
+  }
+  if (xs.length < BOT_TUNING.historyWeighting.minSamples) {
+    return 0;
+  }
+  return Math.max(0, pearson(xs, ys));
+}
+
+function pearson(xs: number[], ys: number[]): number {
+  if (xs.length !== ys.length || xs.length < 2) return 0;
+  const n = xs.length;
+  let sumX = 0;
+  let sumY = 0;
+  let sumXX = 0;
+  let sumYY = 0;
+  let sumXY = 0;
+  for (let i = 0; i < n; i++) {
+    const x = xs[i];
+    const y = ys[i];
+    sumX += x;
+    sumY += y;
+    sumXX += x * x;
+    sumYY += y * y;
+    sumXY += x * y;
+  }
+  const numerator = n * sumXY - sumX * sumY;
+  const denomX = n * sumXX - sumX * sumX;
+  const denomY = n * sumYY - sumY * sumY;
+  const denominator = Math.sqrt(Math.max(denomX, 0) * Math.max(denomY, 0));
+  if (denominator < 1e-12) return 0;
+  return numerator / denominator;
+}
+
+function normalizeIsoDate(value: string | undefined): string | null {
+  if (!value) return null;
+  const trimmed = value.trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return null;
+  const ts = Date.parse(`${trimmed}T00:00:00Z`);
+  if (!Number.isFinite(ts)) return null;
+  return new Date(ts).toISOString().slice(0, 10);
+}
+
+function addDaysIso(isoDate: string, days: number): string {
+  const [year, month, day] = isoDate.split("-").map((v) => Number(v));
+  const dt = new Date(Date.UTC(year, month - 1, day + days));
+  return dt.toISOString().slice(0, 10);
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
+}
+
+function clampInt(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, Math.round(value)));
 }
 
 function normalizeAlpacaCryptoSymbol(symbol: string): string {
