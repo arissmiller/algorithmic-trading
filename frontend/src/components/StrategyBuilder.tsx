@@ -1,13 +1,17 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { SIGNAL_META, SignalType, SignalWeight } from "../lib/signals";
 import type { AccountType } from "../lib/backtest";
+
+export type StrategyMode = "two_phase" | "continuous_range";
 
 export interface StrategyForm {
   symbol: string;
   timeframe: "1Day" | "1Hour";
+  strategyMode: StrategyMode;
   totalAmount: number;
   cadenceDays: number;
   startDate: string;
+  endDate: string;
   scaleInWindowDays: number;
   scaleOutStartDate: string;
   scaleOutWindowDays: number;
@@ -21,6 +25,7 @@ export interface StrategyForm {
 interface Props {
   onRun: (form: StrategyForm) => void;
   onRunPresetSuite: (form: StrategyForm) => void;
+  onFormChange?: (form: StrategyForm) => void;
   running: boolean;
   defaultSymbol?: string;
 }
@@ -31,13 +36,16 @@ export type StrategyPresetKey =
   | "capitulation_hunter"
   | "trend_pullback_hybrid"
   | "defensive_risk_off"
-  | "hourly_mean_reversion";
+  | "hourly_mean_reversion"
+  | "crypto_spot_balanced";
 
 export type StrategyPreset = {
   key: StrategyPresetKey;
   label: string;
   suitableFor: string;
   tuneHint: string;
+  strategyMode?: StrategyMode;
+  defaultRangeDays?: number;
   timeframe?: "1Day" | "1Hour";
   config: Pick<
     StrategyForm,
@@ -135,6 +143,27 @@ export const STRATEGY_PRESETS: StrategyPreset[] = [
       ],
     },
   },
+  {
+    key: "crypto_spot_balanced",
+    label: "Crypto Spot Balanced (Perpetual)",
+    suitableFor: "Long-run crypto spot allocation with continuous buy/sell opportunities",
+    tuneHint: "Uses a continuous date range (start/end only). Keep cadence at 1-2 days for responsive execution.",
+    strategyMode: "continuous_range",
+    defaultRangeDays: 365,
+    timeframe: "1Hour",
+    config: {
+      cadenceDays: 1,
+      scaleInWindowDays: 30,
+      scaleOutWindowDays: 30,
+      aggressiveness: 0.65,
+      signals: [
+        { signal: { type: "price_vs_sma", period: 20 }, weight: 0.35 },
+        { signal: { type: "rsi", period: 14 }, weight: 0.35 },
+        { signal: { type: "bollinger_band", period: 20, std_dev: 2 }, weight: 0.2 },
+        { signal: { type: "momentum", period: 10 }, weight: 0.1 },
+      ],
+    },
+  },
 ];
 
 function makeSignal(type: SignalKey): SignalType {
@@ -153,12 +182,14 @@ function defaultForm(defaultSymbol = "AAPL"): StrategyForm {
   const normalizedDefaultSymbol = defaultSymbol.trim().toUpperCase() || "AAPL";
   const isCryptoDefault = isLikelyCryptoSymbol(normalizedDefaultSymbol);
 
-  return {
+  const baseForm: StrategyForm = {
     symbol: normalizedDefaultSymbol,
     timeframe: "1Day",
+    strategyMode: "two_phase",
     totalAmount: 10000,
     cadenceDays: 3,
     startDate,
+    endDate: addDaysIso(startDate, scaleInWindowDays + 45),
     scaleInWindowDays,
     scaleOutStartDate: addDaysIso(startDate, scaleInWindowDays),
     scaleOutWindowDays: 45,
@@ -172,21 +203,43 @@ function defaultForm(defaultSymbol = "AAPL"): StrategyForm {
       { signal: { type: "bollinger_band", period: 20, std_dev: 2 }, weight: 0.2 },
     ],
   };
+
+  if (isCryptoDefault) {
+    const cryptoSpotPreset = STRATEGY_PRESETS.find((preset) => preset.key === "crypto_spot_balanced");
+    if (cryptoSpotPreset) {
+      return buildPresetForm(baseForm, cryptoSpotPreset);
+    }
+  }
+
+  return baseForm;
 }
 
 export default function StrategyBuilder({
   onRun,
   onRunPresetSuite,
+  onFormChange,
   running,
   defaultSymbol = "AAPL",
 }: Props) {
   const [form, setForm] = useState<StrategyForm>(() => defaultForm(defaultSymbol));
-  const [presetKey, setPresetKey] = useState<StrategyPresetKey>("mean_reversion_balanced");
+  const [presetKey, setPresetKey] = useState<StrategyPresetKey>(() =>
+    isLikelyCryptoSymbol(defaultSymbol) ? "crypto_spot_balanced" : "mean_reversion_balanced"
+  );
+  const isContinuousRange = form.strategyMode === "continuous_range";
+  const continuousWindowDays = deriveContinuousWindowDays(form.startDate, form.endDate);
+  const continuousDateError = isContinuousRange
+    ? validateContinuousRange(form.startDate, form.endDate)
+    : null;
   const inTranches = deriveTranches(form.scaleInWindowDays, form.cadenceDays);
   const outTranches = deriveTranches(form.scaleOutWindowDays, form.cadenceDays);
+  const continuousTranches = deriveTranches(continuousWindowDays, form.cadenceDays);
   const suggestedScaleOutStartDate = addDaysIso(form.startDate, form.scaleInWindowDays);
   const selectedPreset = STRATEGY_PRESETS.find((p) => p.key === presetKey) ?? STRATEGY_PRESETS[0];
   const isCryptoSymbol = isLikelyCryptoSymbol(form.symbol);
+
+  useEffect(() => {
+    onFormChange?.(form);
+  }, [form, onFormChange]);
 
   const patch = <K extends keyof StrategyForm>(k: K, v: StrategyForm[K]) =>
     setForm((f) => ({ ...f, [k]: v }));
@@ -288,7 +341,7 @@ export default function StrategyBuilder({
         </Field>
       </div>
 
-      <Field label="Scale-In Start Date">
+      <Field label={isContinuousRange ? "Backtest Start Date" : "Scale-In Start Date"}>
         <input
           type="date"
           className={input}
@@ -297,7 +350,24 @@ export default function StrategyBuilder({
         />
       </Field>
 
-      {form.timeframe !== "1Hour" && (
+      {isContinuousRange && (
+        <Field label="Backtest End Date">
+          <input
+            type="date"
+            className={input}
+            value={form.endDate}
+            onChange={(e) => patch("endDate", e.target.value)}
+          />
+          {continuousDateError ? (
+            <p className="mt-1 text-[10px] text-sell">{continuousDateError}</p>
+          ) : null}
+          <p className="mt-1 text-[10px] text-text-secondary">
+            This strategy uses one continuous window from start to end for both accumulation and distribution logic.
+          </p>
+        </Field>
+      )}
+
+      {!isContinuousRange && form.timeframe !== "1Hour" && (
         <div className="grid grid-cols-2 gap-2">
           <Field label="Scale-In Duration (days)">
             <input
@@ -320,13 +390,13 @@ export default function StrategyBuilder({
         </div>
       )}
 
-      {form.timeframe === "1Hour" && (
+      {!isContinuousRange && form.timeframe === "1Hour" && (
         <div className="rounded border border-border bg-surface-2 px-2.5 py-2 text-[10px] text-text-secondary">
           Scale-in: {form.scaleInWindowDays} days · Scale-out: {form.scaleOutWindowDays} days (set by preset)
         </div>
       )}
 
-      {form.timeframe !== "1Hour" && (
+      {!isContinuousRange && form.timeframe !== "1Hour" && (
         <Field label="Scale-Out Start Date">
           <div className="flex items-center gap-2">
             <input
@@ -383,7 +453,9 @@ export default function StrategyBuilder({
       <div className="rounded border border-border bg-surface-2 px-2.5 py-2">
         <p className="text-[11px] text-text-secondary">Derived tranches (from cadence)</p>
         <p className="mt-0.5 text-xs text-text-primary tabular-nums">
-          Scale-in: {inTranches} | Scale-out: {outTranches}
+          {isContinuousRange
+            ? `Continuous: ${continuousTranches} across ${continuousWindowDays} day${continuousWindowDays === 1 ? "" : "s"}`
+            : `Scale-in: ${inTranches} | Scale-out: ${outTranches}`}
         </p>
         <p className="text-[10px] text-text-secondary mt-0.5">Runtime may cap counts based on available bars.</p>
       </div>
@@ -451,7 +523,7 @@ export default function StrategyBuilder({
 
       <button
         type="submit"
-        disabled={running || form.signals.length === 0}
+        disabled={running || form.signals.length === 0 || Boolean(continuousDateError)}
         className="mt-auto w-full rounded bg-accent py-2.5 text-sm font-semibold text-white transition-colors hover:bg-accent/90 disabled:opacity-50"
       >
         {running ? "Running…" : "Run Backtest"}
@@ -459,7 +531,7 @@ export default function StrategyBuilder({
       <button
         type="button"
         onClick={() => onRunPresetSuite(form)}
-        disabled={running}
+        disabled={running || Boolean(continuousDateError)}
         className="w-full rounded border border-border bg-surface-2 py-2.5 text-sm font-semibold text-text-primary transition-colors hover:border-accent/40 hover:text-accent disabled:opacity-50"
       >
         {running ? "Running…" : "Run All Presets"}
@@ -493,6 +565,27 @@ function deriveTranches(windowDays: number, cadenceDays: number): number {
   return Math.max(1, raw);
 }
 
+function deriveContinuousWindowDays(startDate: string, endDate: string): number {
+  const startTs = Date.parse(`${startDate}T00:00:00Z`);
+  const endTs = Date.parse(`${endDate}T00:00:00Z`);
+  if (!Number.isFinite(startTs) || !Number.isFinite(endTs)) return 1;
+  const dayMs = 86_400_000;
+  const diffDays = Math.floor((endTs - startTs) / dayMs) + 1;
+  return Math.max(1, diffDays);
+}
+
+function validateContinuousRange(startDate: string, endDate: string): string | null {
+  const startTs = Date.parse(`${startDate}T00:00:00Z`);
+  const endTs = Date.parse(`${endDate}T00:00:00Z`);
+  if (!Number.isFinite(startTs) || !Number.isFinite(endTs)) {
+    return "Start and end dates must be valid.";
+  }
+  if (endTs < startTs) {
+    return "End date must be on or after start date.";
+  }
+  return null;
+}
+
 function addDaysIso(isoDate: string, days: number): string {
   const [y, m, d] = isoDate.split("-").map((v) => Number(v));
   const dt = new Date(Date.UTC(y, m - 1, d + days));
@@ -500,11 +593,21 @@ function addDaysIso(isoDate: string, days: number): string {
 }
 
 export function buildPresetForm(baseForm: StrategyForm, preset: StrategyPreset): StrategyForm {
+  const strategyMode = preset.strategyMode ?? "two_phase";
   const nextScaleInDays = preset.config.scaleInWindowDays;
+  const nextStartDate = baseForm.startDate;
+  const nextEndDate =
+    strategyMode === "continuous_range"
+      ? addDaysIso(nextStartDate, Math.max(1, preset.defaultRangeDays ?? 365))
+      : addDaysIso(nextStartDate, nextScaleInDays + preset.config.scaleOutWindowDays);
+
   return {
     ...baseForm,
+    strategyMode,
     timeframe: preset.timeframe ?? "1Day",
     cadenceDays: preset.config.cadenceDays,
+    startDate: nextStartDate,
+    endDate: nextEndDate,
     scaleInWindowDays: nextScaleInDays,
     scaleOutWindowDays: preset.config.scaleOutWindowDays,
     aggressiveness: preset.config.aggressiveness,
@@ -512,6 +615,9 @@ export function buildPresetForm(baseForm: StrategyForm, preset: StrategyPreset):
       ...sw,
       signal: { ...sw.signal },
     })),
-    scaleOutStartDate: addDaysIso(baseForm.startDate, nextScaleInDays),
+    scaleOutStartDate:
+      strategyMode === "continuous_range"
+        ? nextStartDate
+        : addDaysIso(nextStartDate, nextScaleInDays),
   };
 }

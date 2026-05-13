@@ -383,7 +383,7 @@ function matchScheduledTrades(
     const execPrice = applyExecutionPrice(bar.c, direction, friction);
     if (execPrice <= 0) continue;
     trades.push({
-      date: st.date,
+      date: bar.t,
       price: execPrice,
       amountUsd: st.amountUsd,
       shares: st.amountUsd / execPrice,
