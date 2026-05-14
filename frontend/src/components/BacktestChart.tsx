@@ -11,12 +11,13 @@ import {
 } from "lightweight-charts";
 import { useEffect, useRef } from "react";
 import { BacktestTrade } from "../lib/backtest";
-import { Bar } from "../lib/signals";
+import { Bar, EarningsEvent } from "../lib/signals";
 
 interface Props {
   bars: Bar[];
   scaleInTrades: BacktestTrade[];
   scaleOutTrades: BacktestTrade[];
+  earningsEvents: EarningsEvent[];
 }
 
 const toTime = (t: string) => Math.floor(new Date(t).getTime() / 1000) as Time;
@@ -25,6 +26,7 @@ export default function BacktestChart({
   bars,
   scaleInTrades,
   scaleOutTrades,
+  earningsEvents,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -89,11 +91,12 @@ export default function BacktestChart({
   // Update markers
   useEffect(() => {
     if (!markersRef.current) return;
-    if (scaleInTrades.length === 0 && scaleOutTrades.length === 0) {
+    if (scaleInTrades.length === 0 && scaleOutTrades.length === 0 && earningsEvents.length === 0) {
       markersRef.current.setMarkers([]);
       return;
     }
 
+    const resolveEarningsTime = buildEarningsTimeResolver(bars);
     const markers = [
       ...scaleInTrades.map(
         (t) =>
@@ -115,12 +118,66 @@ export default function BacktestChart({
             size: 0.7,
           }) as SeriesMarker<Time>
       ),
+      ...earningsEvents.map(
+        (event) =>
+          ({
+            time: resolveEarningsTime(event.date),
+            position: "inBar" as SeriesMarker<Time>["position"],
+            color: "#f59e0b",
+            shape: "circle" as SeriesMarker<Time>["shape"],
+            size: 0.65,
+            text: formatEarningsMarkerText(event),
+          }) as SeriesMarker<Time>
+      ),
     ]
       .sort((a, b) => (a.time as number) - (b.time as number));
 
     markersRef.current.setMarkers(markers);
     chartRef.current?.timeScale().fitContent();
-  }, [scaleInTrades, scaleOutTrades]);
+  }, [bars, scaleInTrades, scaleOutTrades, earningsEvents]);
 
   return <div ref={containerRef} className="h-full w-full" />;
+}
+
+function formatEarningsMarkerText(event: EarningsEvent): string {
+  const surprisePct = event.surprisePercentage;
+  if (typeof surprisePct === "number" && Number.isFinite(surprisePct)) {
+    const sign = surprisePct >= 0 ? "+" : "";
+    return `E ${sign}${surprisePct.toFixed(1)}%`;
+  }
+  return "E";
+}
+
+function buildEarningsTimeResolver(bars: Bar[]): (earningsDate: string) => Time {
+  const firstBarTimeByDay = new Map<string, Time>();
+  const sortedBarTimes: number[] = [];
+
+  for (const bar of bars) {
+    const barTs = toTime(bar.t) as number;
+    sortedBarTimes.push(barTs);
+    const dayKey = new Date(bar.t).toISOString().slice(0, 10);
+    if (!firstBarTimeByDay.has(dayKey)) {
+      firstBarTimeByDay.set(dayKey, barTs as Time);
+    }
+  }
+
+  sortedBarTimes.sort((a, b) => a - b);
+
+  return (earningsDate: string): Time => {
+    const direct = firstBarTimeByDay.get(earningsDate);
+    if (direct) return direct;
+
+    const eventTs = toTime(earningsDate) as number;
+    const nextTradingBarTs = sortedBarTimes.find((barTs) => barTs >= eventTs);
+    if (typeof nextTradingBarTs === "number") {
+      return nextTradingBarTs as Time;
+    }
+
+    const fallbackBarTs = sortedBarTimes[sortedBarTimes.length - 1];
+    if (typeof fallbackBarTs === "number") {
+      return fallbackBarTs as Time;
+    }
+
+    return eventTs as Time;
+  };
 }

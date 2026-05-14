@@ -5,7 +5,7 @@ import RunQueueBuilder, { BacktestRun } from "./components/RunQueueBuilder";
 import RunQueueResults, { RunQueueResult } from "./components/RunQueueResults";
 import AIControlCenter from "./components/AIControlCenter";
 import { BacktestResult, runBacktest } from "./lib/backtest";
-import { Bar } from "./lib/signals";
+import { Bar, EarningsEvent } from "./lib/signals";
 
 const STOCK_BENCHMARK_SYMBOL = "^GSPC";
 const CRYPTO_BENCHMARK_SYMBOL = "BTC/USD";
@@ -42,6 +42,7 @@ type AlpacaPosition = {
 type AssetClass = "stocks_etf" | "crypto";
 
 type AppPage = "stocks_backtest" | "crypto_backtest";
+type MarketBarsPayload = { bars: Bar[]; earningsEvents: EarningsEvent[] };
 
 const APP_PAGES: { id: AppPage; label: string }[] = [
   { id: "stocks_backtest", label: "Stocks/ETF Backtest" },
@@ -81,7 +82,7 @@ export default function App() {
     return () => clearInterval(id);
   }, [setServerOnline]);
 
-  const barsCacheRef = useRef<Record<string, Bar[]>>({});
+  const barsCacheRef = useRef<Record<string, MarketBarsPayload>>({});
 
   async function fetchBars(
     symbol: string,
@@ -92,7 +93,7 @@ export default function App() {
       endDate?: string;
       range?: string;
     }
-  ): Promise<Bar[]> {
+  ): Promise<MarketBarsPayload> {
     const normalizedSymbol = normalizeSymbol(symbol);
     const timeframe = options.timeframe ?? "1Day";
     const range = options.range ?? "2y";
@@ -102,9 +103,9 @@ export default function App() {
         : "all";
     const cacheKey = `${normalizedSymbol}::${timeframe}::${range}::${intradayWindowKey}`;
     const cached = barsCacheRef.current[cacheKey];
-    if (cached && cached.length > 0) {
+    if (cached && cached.bars.length > 0) {
       if (options.persist) {
-        setBars(cached);
+        setBars(cached.bars);
       }
       return cached;
     }
@@ -132,12 +133,17 @@ export default function App() {
 
       const json = await res.json();
       const loadedBars = (json.bars as Bar[]) ?? [];
-      barsCacheRef.current[cacheKey] = loadedBars;
+      const loadedEarningsEvents = (json.earningsEvents as EarningsEvent[] | undefined) ?? [];
+      const payload: MarketBarsPayload = {
+        bars: loadedBars,
+        earningsEvents: loadedEarningsEvents,
+      };
+      barsCacheRef.current[cacheKey] = payload;
 
       if (options.persist) {
         setBars(loadedBars);
       }
-      return loadedBars;
+      return payload;
     } catch (e) {
       if (options.persist) {
         const msg = e instanceof Error ? e.message : "Unknown error";
@@ -250,13 +256,15 @@ export default function App() {
         const symbol = normalizeSymbol(form.symbol);
         const intradayFetchWindow = resolveIntradayFetchWindow(form);
         const neededRange = rangeForStartDate(form.startDate);
-        const assetBars = await fetchBars(symbol, {
+        const assetData = await fetchBars(symbol, {
           persist: false,
           timeframe: form.timeframe,
           range: neededRange,
           startDate: intradayFetchWindow?.startDate,
           endDate: intradayFetchWindow?.endDate,
         });
+        const assetBars = assetData.bars;
+        const assetEarningsEvents = assetData.earningsEvents;
 
         if (assetBars.length === 0) throw new Error("No bars loaded for symbol.");
 
@@ -265,20 +273,28 @@ export default function App() {
           benchmarkBars = assetBars;
         } else {
           try {
-            benchmarkBars = await fetchBars(benchmarkSymbol, { persist: false });
+            benchmarkBars = (await fetchBars(benchmarkSymbol, { persist: false })).bars;
           } catch {
             // non-fatal — benchmark unavailable
           }
         }
 
         const computed = computeResultForForm(form, assetBars, benchmarkBars, benchmarkSymbol);
-        results.push({ run, form, result: computed, bars: assetBars, error: null });
+        results.push({
+          run,
+          form,
+          result: computed,
+          bars: assetBars,
+          earningsEvents: assetEarningsEvents,
+          error: null,
+        });
       } catch (e) {
         results.push({
           run,
           form,
           result: null,
           bars: [],
+          earningsEvents: [],
           error: e instanceof Error ? e.message : "Unknown error",
         });
       }

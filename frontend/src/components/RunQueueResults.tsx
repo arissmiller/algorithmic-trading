@@ -1,5 +1,5 @@
 import type { BacktestResult } from "../lib/backtest";
-import { Bar } from "../lib/signals";
+import { Bar, EarningsEvent } from "../lib/signals";
 import { STRATEGY_PRESETS } from "./StrategyBuilder";
 import type { StrategyForm } from "./StrategyBuilder";
 import type { BacktestRun } from "./RunQueueBuilder";
@@ -11,6 +11,7 @@ export interface RunQueueResult {
   form: StrategyForm;
   result: BacktestResult | null;
   bars: Bar[];
+  earningsEvents: EarningsEvent[];
   error: string | null;
 }
 
@@ -62,6 +63,7 @@ export default function RunQueueResults({ results }: { results: RunQueueResult[]
 
   // Combined chart
   const chartBars = successful.find((r) => r.bars.length > 0)?.bars ?? [];
+  const chartEarningsEvents = successful.find((r) => r.bars.length > 0)?.earningsEvents ?? [];
   const allBuyTrades = successful.flatMap((r) => r.result!.scaleIn?.trades ?? []);
   const allSellTrades = successful.flatMap((r) => r.result!.scaleOut?.trades ?? []);
 
@@ -114,6 +116,7 @@ export default function RunQueueResults({ results }: { results: RunQueueResult[]
               bars={chartBars}
               scaleInTrades={allBuyTrades}
               scaleOutTrades={allSellTrades}
+              earningsEvents={chartEarningsEvents}
             />
           </div>
         </section>

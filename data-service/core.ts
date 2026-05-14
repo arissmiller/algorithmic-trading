@@ -1,4 +1,8 @@
 import { getCachedBars, upsertCachedBars } from "./barCache";
+import {
+  getSecEarningsEventsForWindow,
+} from "./secEarningsStore.ts";
+import type { EarningsEvent } from "./earningsTypes.ts";
 
 const RANGE_MAP: Record<string, string> = {
   "1y": "1y",
@@ -29,6 +33,15 @@ const ALPACA_FEED = (process.env.ALPACA_FEED ?? "iex").trim() || "iex";
 const ALPACA_REQUEST_TIMEOUT_MS = Number(
   process.env.ALPACA_REQUEST_TIMEOUT_MS ?? 10_000
 );
+const ALPHA_VANTAGE_EARNINGS_URL =
+  process.env.ALPHA_VANTAGE_EARNINGS_URL?.trim() ||
+  "https://www.alphavantage.co/query";
+const ALPHA_VANTAGE_API_KEY = (process.env.ALPHA_VANTAGE_API_KEY ?? "").trim();
+const EARNINGS_CACHE_TTL_MS = normalizePositiveInt(
+  process.env.EARNINGS_CACHE_TTL_MS,
+  6 * 60 * 60 * 1000
+);
+const earningsEventsCache = new Map<string, CachedEarningsEvents>();
 
 export class ApiHttpError extends Error {
   status: number;
@@ -47,7 +60,7 @@ export async function fetchMarketBars(input: {
   timeframe?: MarketTimeframe;
   startDate?: string | null;
   endDate?: string | null;
-}): Promise<{ symbol: string; bars: ApiBar[] }> {
+}): Promise<{ symbol: string; bars: ApiBar[]; earningsEvents: EarningsEvent[] }> {
   const symbol = normalizeSymbol(input.symbol);
   if (!symbol) {
     throw new ApiHttpError(400, "Missing symbol");
@@ -112,7 +125,8 @@ export async function fetchMarketBars(input: {
       throw new ApiHttpError(404, "No data returned");
     }
 
-    return { symbol: responseSymbol, bars: dedupedBars };
+    const earningsEvents = await loadEarningsEventsForBars(symbol, dedupedBars);
+    return { symbol: responseSymbol, bars: dedupedBars, earningsEvents };
   }
 
   const range = RANGE_MAP[input.range ?? "2y"] ?? "2y";
@@ -123,9 +137,11 @@ export async function fetchMarketBars(input: {
     timeframe,
   });
   if (cached) {
+    const earningsEvents = await loadEarningsEventsForBars(symbol, cached.bars);
     return {
       symbol: cached.symbol,
       bars: cached.bars,
+      earningsEvents,
     };
   }
 
@@ -147,7 +163,8 @@ export async function fetchMarketBars(input: {
     bars: fresh.bars,
   });
 
-  return fresh;
+  const earningsEvents = await loadEarningsEventsForBars(symbol, fresh.bars);
+  return { ...fresh, earningsEvents };
 }
 
 export async function fetchAlpacaAccountSnapshot(
@@ -548,6 +565,110 @@ async function throwAlpacaTradingError(
   );
 }
 
+async function loadEarningsEventsForBars(
+  symbol: string,
+  bars: ApiBar[]
+): Promise<EarningsEvent[]> {
+  if (
+    bars.length === 0 ||
+    isCryptoSymbol(symbol) ||
+    symbol.startsWith("^")
+  ) {
+    return [];
+  }
+
+  const startDate = isoDayFromTimestamp(bars[0]?.t ?? "");
+  const endDate = isoDayFromTimestamp(bars[bars.length - 1]?.t ?? "");
+  if (!startDate || !endDate || endDate < startDate) {
+    return [];
+  }
+
+  const persistedSecEvents = await getSecEarningsEventsForWindow({
+    symbol,
+    startDate,
+    endDate,
+  });
+  if (persistedSecEvents !== null) {
+    return persistedSecEvents;
+  }
+
+  if (!ALPHA_VANTAGE_API_KEY) {
+    return [];
+  }
+
+  const allEvents = await fetchEarningsHistory(symbol);
+  return allEvents.filter((event) => event.date >= startDate && event.date <= endDate);
+}
+
+async function fetchEarningsHistory(symbol: string): Promise<EarningsEvent[]> {
+  const cacheKey = normalizeSymbol(symbol);
+  const nowMs = Date.now();
+  const cached = earningsEventsCache.get(cacheKey);
+  if (cached && nowMs - cached.cachedAtMs < EARNINGS_CACHE_TTL_MS) {
+    return cached.events;
+  }
+
+  const params = new URLSearchParams({
+    function: "EARNINGS",
+    symbol: cacheKey,
+    apikey: ALPHA_VANTAGE_API_KEY,
+  });
+  const url = `${ALPHA_VANTAGE_EARNINGS_URL}?${params.toString()}`;
+
+  try {
+    const response = await fetchWithTimeout(url, { headers: { Accept: "application/json" } }, 10_000);
+    if (!response.ok) {
+      earningsEventsCache.set(cacheKey, { cachedAtMs: nowMs, events: [] });
+      return [];
+    }
+
+    const payload = (await response.json()) as AlphaVantageEarningsResponse;
+    if (!payload || typeof payload !== "object") {
+      earningsEventsCache.set(cacheKey, { cachedAtMs: nowMs, events: [] });
+      return [];
+    }
+
+    const warning =
+      trimToNull(payload.Note) ??
+      trimToNull(payload.Information) ??
+      trimToNull(payload["Error Message"]);
+    if (warning) {
+      earningsEventsCache.set(cacheKey, { cachedAtMs: nowMs, events: [] });
+      return [];
+    }
+
+    const events = Array.isArray(payload.quarterlyEarnings)
+      ? normalizeEarningsEvents(payload.quarterlyEarnings)
+      : [];
+
+    earningsEventsCache.set(cacheKey, { cachedAtMs: nowMs, events });
+    return events;
+  } catch {
+    earningsEventsCache.set(cacheKey, { cachedAtMs: nowMs, events: [] });
+    return [];
+  }
+}
+
+function normalizeEarningsEvents(rows: AlphaVantageQuarterlyEarnings[]): EarningsEvent[] {
+  const dedupedByDate = new Map<string, EarningsEvent>();
+
+  for (const row of rows) {
+    const date = normalizeIsoDay(trimToNull(row.reportedDate) ?? trimToNull(row.fiscalDateEnding));
+    if (!date) continue;
+
+    dedupedByDate.set(date, {
+      date,
+      fiscalDateEnding: normalizeIsoDay(trimToNull(row.fiscalDateEnding)),
+      reportedEps: numberOrNull(row.reportedEPS),
+      estimatedEps: numberOrNull(row.estimatedEPS),
+      surprise: numberOrNull(row.surprise),
+      surprisePercentage: numberOrNull(row.surprisePercentage),
+    });
+  }
+
+  return Array.from(dedupedByDate.values()).sort((a, b) => a.date.localeCompare(b.date));
+}
+
 function getTimeWindow(
   range: string,
   timeframe: MarketTimeframe = "1Day"
@@ -665,6 +786,12 @@ function dedupeAndSortBars(bars: ApiBar[]): ApiBar[] {
   return Array.from(byTime.values()).sort((a, b) => a.t.localeCompare(b.t));
 }
 
+function isoDayFromTimestamp(value: string): string | null {
+  const ts = Date.parse(value);
+  if (!Number.isFinite(ts)) return null;
+  return new Date(ts).toISOString().slice(0, 10);
+}
+
 function normalizeSymbol(symbol: string): string {
   return symbol.trim().toUpperCase();
 }
@@ -683,6 +810,23 @@ function numberOrNull(value: unknown): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function trimToNull(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function normalizePositiveInt(
+  value: string | undefined,
+  fallbackValue: number
+): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return fallbackValue;
+  }
+  return Math.floor(parsed);
+}
+
 interface ApiBar {
   t: string;
   o: number;
@@ -695,6 +839,28 @@ interface ApiBar {
 interface AlpacaBarsResponse {
   bars?: AlpacaBar[];
   next_page_token?: string | null;
+}
+
+interface CachedEarningsEvents {
+  cachedAtMs: number;
+  events: EarningsEvent[];
+}
+
+interface AlphaVantageEarningsResponse {
+  quarterlyEarnings?: AlphaVantageQuarterlyEarnings[];
+  annualEarnings?: unknown[];
+  Note?: string;
+  Information?: string;
+  "Error Message"?: string;
+}
+
+interface AlphaVantageQuarterlyEarnings {
+  fiscalDateEnding?: string;
+  reportedDate?: string;
+  reportedEPS?: string | number;
+  estimatedEPS?: string | number;
+  surprise?: string | number;
+  surprisePercentage?: string | number;
 }
 
 interface AlpacaCryptoBarsResponse {

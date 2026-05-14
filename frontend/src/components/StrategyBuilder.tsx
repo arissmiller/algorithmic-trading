@@ -52,7 +52,7 @@ export type StrategyPreset = {
 export const STRATEGY_PRESETS: StrategyPreset[] = [
   {
     key: "scale_in",
-    label: "Scale In",
+    label: "buy over time",
     suitableFor: "Accumulating a position over time",
     tuneHint: "Raise aggressiveness in high-conviction setups. Duration and cadence are set by the run queue option.",
     phase: "scale_in",
@@ -70,7 +70,7 @@ export const STRATEGY_PRESETS: StrategyPreset[] = [
   },
   {
     key: "selloff",
-    label: "Selloff",
+    label: "sell off",
     suitableFor: "Exiting a position gradually over time",
     tuneHint: "Raise aggressiveness to exit faster. Use volume signals to time sales around peak sell pressure.",
     phase: "scale_out",

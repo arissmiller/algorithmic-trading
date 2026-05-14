@@ -16,9 +16,28 @@ import {
   RATE_LIMIT_WINDOW_MS,
   RATE_LIMIT_MAX,
 } from "./config.ts";
+import { startSecEarningsSyncLoop } from "./secEarningsStore.ts";
 
 type RateLimitBucket = { count: number; resetAtMs: number };
+type ParsedOrigin = {
+  protocol: "http:" | "https:";
+  hostname: string;
+  port: string;
+  canonical: string;
+};
+type AllowedOriginRule =
+  | { kind: "any" }
+  | { kind: "exact"; canonical: string }
+  | {
+      kind: "wildcard_subdomain";
+      protocol: "http:" | "https:";
+      baseHostname: string;
+      port: string | null;
+    };
 const rateLimitBuckets = new Map<string, RateLimitBucket>();
+const ALLOWED_ORIGIN_RULES = ALLOWED_ORIGINS
+  .map(parseAllowedOriginRule)
+  .filter((rule): rule is AllowedOriginRule => rule !== null);
 
 const apiConnectionStore = new UserApiConnectionStore(API_CONNECTION_STATE_FILE);
 
@@ -105,6 +124,7 @@ server.listen(PORT, () => {
   }
   void initializeWatchlistExecution();
   void apiConnectionStore.load();
+  startSecEarningsSyncLoop();
 });
 
 async function initializeWatchlistExecution(): Promise<void> {
@@ -114,8 +134,115 @@ async function initializeWatchlistExecution(): Promise<void> {
 
 function resolveAllowedOrigin(origin: string | null): string | null {
   if (!origin) return null;
-  if (ALLOWED_ORIGINS.length === 0) return origin;
-  return ALLOWED_ORIGINS.includes(origin) ? origin : null;
+  const parsedOrigin = parseHttpOrigin(origin);
+  if (!parsedOrigin) return null;
+
+  if (ALLOWED_ORIGIN_RULES.length === 0) {
+    return parsedOrigin.canonical;
+  }
+
+  for (const rule of ALLOWED_ORIGIN_RULES) {
+    if (matchesAllowedOriginRule(parsedOrigin, rule)) {
+      return parsedOrigin.canonical;
+    }
+  }
+
+  return null;
+}
+
+function parseAllowedOriginRule(value: string): AllowedOriginRule | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (trimmed === "*") return { kind: "any" };
+
+  const wildcardRule = parseWildcardSubdomainRule(trimmed);
+  if (wildcardRule) return wildcardRule;
+
+  const parsedExact = parseHttpOrigin(trimmed);
+  if (!parsedExact) return null;
+  return { kind: "exact", canonical: parsedExact.canonical };
+}
+
+function parseWildcardSubdomainRule(value: string): AllowedOriginRule | null {
+  const match = value.match(
+    /^(https?):\/\/\*\.([A-Za-z0-9.-]+)(?::([0-9]{1,5}))?\/?$/i
+  );
+  if (!match) return null;
+
+  const protocol = `${match[1].toLowerCase()}:` as "http:" | "https:";
+  const baseHostname = match[2].toLowerCase().replace(/\.+$/, "");
+  if (!baseHostname) return null;
+
+  const hasPort = typeof match[3] === "string" && match[3].length > 0;
+  const normalizedPort = hasPort ? normalizePort(protocol, match[3]) : null;
+  if (hasPort && normalizedPort === null) return null;
+
+  return {
+    kind: "wildcard_subdomain",
+    protocol,
+    baseHostname,
+    port: normalizedPort,
+  };
+}
+
+function matchesAllowedOriginRule(
+  origin: ParsedOrigin,
+  rule: AllowedOriginRule
+): boolean {
+  if (rule.kind === "any") return true;
+
+  if (rule.kind === "exact") {
+    return origin.canonical === rule.canonical;
+  }
+
+  if (origin.protocol !== rule.protocol) {
+    return false;
+  }
+
+  if (rule.port !== null && origin.port !== rule.port) {
+    return false;
+  }
+
+  if (origin.hostname === rule.baseHostname) {
+    return false;
+  }
+
+  return origin.hostname.endsWith(`.${rule.baseHostname}`);
+}
+
+function parseHttpOrigin(value: string): ParsedOrigin | null {
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "http:" && url.protocol !== "https:") {
+      return null;
+    }
+
+    const protocol = url.protocol as "http:" | "https:";
+    const hostname = url.hostname.toLowerCase();
+    const port = normalizePort(protocol, url.port);
+    if (port === null) return null;
+
+    const canonical = `${protocol}//${hostname}${port ? `:${port}` : ""}`;
+    return { protocol, hostname, port, canonical };
+  } catch {
+    return null;
+  }
+}
+
+function normalizePort(
+  protocol: "http:" | "https:",
+  rawPort: string
+): string | null {
+  if (!rawPort) return "";
+  if (!/^[0-9]{1,5}$/.test(rawPort)) return null;
+  const asNumber = Number(rawPort);
+  if (!Number.isFinite(asNumber) || asNumber <= 0 || asNumber > 65_535) {
+    return null;
+  }
+  if ((protocol === "https:" && asNumber === 443) || (protocol === "http:" && asNumber === 80)) {
+    return "";
+  }
+  return String(asNumber);
 }
 
 function getClientIp(req: http.IncomingMessage): string {

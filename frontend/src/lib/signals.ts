@@ -7,6 +7,15 @@ export interface Bar {
   v: number;
 }
 
+export interface EarningsEvent {
+  date: string;
+  fiscalDateEnding: string | null;
+  reportedEps: number | null;
+  estimatedEps: number | null;
+  surprise: number | null;
+  surprisePercentage: number | null;
+}
+
 // ── Signal type registry ──────────────────────────────────────────────────────
 //
 // Adding a new signal = new variant in SignalType + a case in buyScore().
