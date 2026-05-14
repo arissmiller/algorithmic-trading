@@ -26,6 +26,8 @@ interface Props {
   onRunsChange: (runs: BacktestRun[]) => void;
   onRunAll: () => void;
   running: boolean;
+  defaultSymbol?: string;
+  symbolMode?: "stocks" | "crypto";
 }
 
 const input =
@@ -36,13 +38,14 @@ function addDaysIso(isoDate: string, days: number): string {
   return new Date(Date.UTC(y, m - 1, d + days)).toISOString().split("T")[0];
 }
 
-function defaultDraft(): Omit<BacktestRun, "id"> {
+function defaultDraft(defaultSymbol = "AAPL"): Omit<BacktestRun, "id"> {
   const start = new Date();
   start.setFullYear(start.getFullYear() - 1);
   const defaultDuration = DURATION_OPTIONS[3];
+  const normalizedSymbol = defaultSymbol.trim().toUpperCase() || "AAPL";
   return {
     presetKey: "scale_in",
-    symbol: "AAPL",
+    symbol: normalizedSymbol,
     startDate: start.toISOString().split("T")[0],
     durationDays: defaultDuration.durationDays,
     cadenceDays: defaultDuration.cadenceDays,
@@ -50,9 +53,18 @@ function defaultDraft(): Omit<BacktestRun, "id"> {
   };
 }
 
-export default function RunQueueBuilder({ runs, onRunsChange, onRunAll, running }: Props) {
+export default function RunQueueBuilder({
+  runs,
+  onRunsChange,
+  onRunAll,
+  running,
+  defaultSymbol = "AAPL",
+  symbolMode = "stocks",
+}: Props) {
   const [adding, setAdding] = useState(false);
-  const [draft, setDraft] = useState<Omit<BacktestRun, "id">>(defaultDraft);
+  const [draft, setDraft] = useState<Omit<BacktestRun, "id">>(() =>
+    defaultDraft(defaultSymbol)
+  );
 
   const patchDraft = <K extends keyof Omit<BacktestRun, "id">>(
     k: K,
@@ -60,10 +72,19 @@ export default function RunQueueBuilder({ runs, onRunsChange, onRunAll, running 
   ) => setDraft((d) => ({ ...d, [k]: v }));
 
   function addRun() {
-    if (!draft.symbol || !draft.startDate || draft.durationDays < 1) return;
-    onRunsChange([...runs, { ...draft, id: crypto.randomUUID() }]);
+    if (!canAddRun) return;
+
+    const normalizedSymbol =
+      symbolMode === "crypto"
+        ? normalizeCryptoInput(draft.symbol)
+        : draft.symbol;
+
+    onRunsChange([
+      ...runs,
+      { ...draft, symbol: normalizedSymbol, id: crypto.randomUUID() },
+    ]);
     setAdding(false);
-    setDraft(defaultDraft());
+    setDraft(defaultDraft(defaultSymbol));
   }
 
   function removeRun(id: string) {
@@ -72,6 +93,10 @@ export default function RunQueueBuilder({ runs, onRunsChange, onRunAll, running 
 
   const selectedPreset =
     STRATEGY_PRESETS.find((p) => p.key === draft.presetKey) ?? STRATEGY_PRESETS[0];
+  const cryptoSymbolError =
+    symbolMode === "crypto" ? validateCryptoSymbol(draft.symbol) : null;
+  const canAddRun =
+    Boolean(draft.symbol) && Boolean(draft.startDate) && draft.durationDays >= 1 && !cryptoSymbolError;
 
   return (
     <div className="flex flex-col gap-3 p-4 h-full overflow-y-auto">
@@ -137,9 +162,24 @@ export default function RunQueueBuilder({ runs, onRunsChange, onRunAll, running 
             <input
               className={input}
               value={draft.symbol}
-              onChange={(e) => patchDraft("symbol", e.target.value.toUpperCase())}
-              placeholder="AAPL"
+              onChange={(e) =>
+                patchDraft(
+                  "symbol",
+                  symbolMode === "crypto"
+                    ? normalizeCryptoInput(e.target.value)
+                    : e.target.value.toUpperCase()
+                )
+              }
+              placeholder={defaultSymbol}
             />
+            {cryptoSymbolError ? (
+              <p className="mt-0.5 text-[10px] text-sell">{cryptoSymbolError}</p>
+            ) : null}
+            {symbolMode === "crypto" && !cryptoSymbolError ? (
+              <p className="mt-0.5 text-[10px] text-text-secondary">
+                Crypto-only symbols. Examples: BTC, ETH, SOL, BTC/USD, ETH/USDT
+              </p>
+            ) : null}
           </div>
 
           <div className="grid grid-cols-2 gap-2">
@@ -190,7 +230,7 @@ export default function RunQueueBuilder({ runs, onRunsChange, onRunAll, running 
             <button
               type="button"
               onClick={addRun}
-              disabled={!draft.symbol || !draft.startDate || draft.durationDays < 1}
+              disabled={!canAddRun}
               className="flex-1 rounded bg-accent py-1.5 text-xs font-semibold text-white hover:bg-accent/90 disabled:opacity-50"
             >
               Add to Queue
@@ -199,7 +239,7 @@ export default function RunQueueBuilder({ runs, onRunsChange, onRunAll, running 
               type="button"
               onClick={() => {
                 setAdding(false);
-                setDraft(defaultDraft());
+                setDraft(defaultDraft(defaultSymbol));
               }}
               className="rounded border border-border bg-surface-2 px-3 py-1.5 text-xs text-text-secondary hover:text-text-primary"
             >
@@ -235,3 +275,66 @@ export default function RunQueueBuilder({ runs, onRunsChange, onRunAll, running 
     </div>
   );
 }
+
+function normalizeCryptoInput(value: string): string {
+  return value.trim().toUpperCase().replace(/[-_]/g, "/");
+}
+
+function validateCryptoSymbol(value: string): string | null {
+  const normalized = normalizeCryptoInput(value);
+  if (!normalized) {
+    return "Enter a crypto ticker.";
+  }
+
+  if (!normalized.includes("/")) {
+    return SUPPORTED_CRYPTO_BASES.has(normalized)
+      ? null
+      : "Unsupported crypto ticker. Use symbols like BTC, ETH, SOL, or BTC/USD.";
+  }
+
+  const [base, quote, ...rest] = normalized.split("/");
+  if (!base || !quote || rest.length > 0) {
+    return "Use format BASE/QUOTE, for example BTC/USD.";
+  }
+
+  if (!SUPPORTED_CRYPTO_BASES.has(base)) {
+    return "Unsupported base asset for crypto mode.";
+  }
+
+  if (!SUPPORTED_CRYPTO_QUOTES.has(quote)) {
+    return "Unsupported quote asset. Use USD, USDT, USDC, or BTC.";
+  }
+
+  return null;
+}
+
+const SUPPORTED_CRYPTO_BASES = new Set([
+  "AAVE",
+  "ALGO",
+  "AVAX",
+  "BAT",
+  "BCH",
+  "BTC",
+  "CRV",
+  "DOGE",
+  "DOT",
+  "ETH",
+  "GRT",
+  "LINK",
+  "LTC",
+  "MKR",
+  "NEAR",
+  "PAXG",
+  "SHIB",
+  "SOL",
+  "SUSHI",
+  "TRX",
+  "UNI",
+  "USDC",
+  "USDT",
+  "WBTC",
+  "XTZ",
+  "YFI",
+]);
+
+const SUPPORTED_CRYPTO_QUOTES = new Set(["USD", "USDT", "USDC", "BTC"]);

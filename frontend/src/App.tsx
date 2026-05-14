@@ -313,8 +313,14 @@ export default function App() {
       <header className="border-b border-border bg-surface-1 shadow-[0_0_18px_rgba(70,215,255,0.12)]">
         <div className="flex items-center gap-2 border-b border-border/70 px-4 py-3 pr-24">
           <span className="text-sm font-semibold tracking-tight">Smart Scale</span>
+          <a
+            href="https://arissmiller.net"
+            className="ml-auto rounded border border-border bg-surface-2 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-text-secondary transition-colors hover:text-text-primary"
+          >
+            Back to Projects
+          </a>
           <span
-            className={`ml-auto h-2 w-2 rounded-full ${serverOnline ? "bg-buy" : "bg-sell"}`}
+            className={`h-2 w-2 rounded-full ${serverOnline ? "bg-buy" : "bg-sell"}`}
             title={serverOnline ? "API online" : "API offline"}
           />
           <span className="text-[10px] text-text-secondary">
@@ -350,6 +356,8 @@ export default function App() {
             running={running}
             runError={runError}
             benchmarkSymbol={STOCK_BENCHMARK_SYMBOL}
+            defaultSymbol="AAPL"
+            symbolMode="stocks"
             onRunQueue={handleRunQueue}
           />
         )}
@@ -361,6 +369,8 @@ export default function App() {
             running={running}
             runError={runError}
             benchmarkSymbol={CRYPTO_BENCHMARK_SYMBOL}
+            defaultSymbol="BTC"
+            symbolMode="crypto"
             onRunQueue={handleRunQueue}
           />
         )}
@@ -375,12 +385,16 @@ function BacktestingPage({
   running,
   runError,
   benchmarkSymbol,
+  defaultSymbol,
+  symbolMode,
   onRunQueue,
 }: {
   title: string;
   running: boolean;
   runError: string | null;
   benchmarkSymbol: string;
+  defaultSymbol: string;
+  symbolMode: "stocks" | "crypto";
   onRunQueue: (runs: BacktestRun[], benchmarkSymbol: string) => Promise<RunQueueResult[]>;
 }) {
   const [runs, setRuns] = useState<BacktestRun[]>([]);
@@ -400,6 +414,8 @@ function BacktestingPage({
           onRunsChange={setRuns}
           onRunAll={() => void handleRunAll()}
           running={running}
+          defaultSymbol={defaultSymbol}
+          symbolMode={symbolMode}
         />
       </aside>
 
@@ -863,6 +879,36 @@ function normalizeSymbol(symbol: string): string {
 function isLikelyCryptoSymbol(symbol: string): boolean {
   const normalized = normalizeSymbol(symbol);
   if (!normalized) return false;
+  if (SUPPORTED_CRYPTO_BASES.has(normalized)) return true;
   if (normalized.includes("/")) return true;
   return /^[A-Z0-9]{2,10}[-_](USD|USDT|USDC|BTC|ETH|EUR|GBP|JPY)$/.test(normalized);
 }
+
+const SUPPORTED_CRYPTO_BASES = new Set([
+  "AAVE",
+  "ALGO",
+  "AVAX",
+  "BAT",
+  "BCH",
+  "BTC",
+  "CRV",
+  "DOGE",
+  "DOT",
+  "ETH",
+  "GRT",
+  "LINK",
+  "LTC",
+  "MKR",
+  "NEAR",
+  "PAXG",
+  "SHIB",
+  "SOL",
+  "SUSHI",
+  "TRX",
+  "UNI",
+  "USDC",
+  "USDT",
+  "WBTC",
+  "XTZ",
+  "YFI",
+]);

@@ -457,6 +457,10 @@ function resolveAlpacaSymbol(symbol: string): string {
 }
 
 function isCryptoSymbol(symbol: string): boolean {
+  const upper = symbol.trim().toUpperCase();
+  if (SUPPORTED_CRYPTO_BASES.has(upper)) {
+    return true;
+  }
   if (symbol.includes("/")) {
     return true;
   }
@@ -465,6 +469,9 @@ function isCryptoSymbol(symbol: string): boolean {
 
 function normalizeCryptoSymbol(symbol: string): string {
   const upper = symbol.trim().toUpperCase().replace(/[-_]/g, "/");
+  if (SUPPORTED_CRYPTO_BASES.has(upper)) {
+    return `${upper}/USD`;
+  }
   const [base, quote, ...rest] = upper.split("/");
   if (base && quote && rest.length === 0) {
     return `${base}/${quote}`;
@@ -482,6 +489,35 @@ function normalizeCryptoSymbol(symbol: string): string {
   }
   return upper;
 }
+
+const SUPPORTED_CRYPTO_BASES = new Set([
+  "AAVE",
+  "ALGO",
+  "AVAX",
+  "BAT",
+  "BCH",
+  "BTC",
+  "CRV",
+  "DOGE",
+  "DOT",
+  "ETH",
+  "GRT",
+  "LINK",
+  "LTC",
+  "MKR",
+  "NEAR",
+  "PAXG",
+  "SHIB",
+  "SOL",
+  "SUSHI",
+  "TRX",
+  "UNI",
+  "USDC",
+  "USDT",
+  "WBTC",
+  "XTZ",
+  "YFI",
+]);
 
 function extractCryptoBars(
   barsBySymbol: unknown,

@@ -470,9 +470,39 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 function isLikelyCryptoSymbol(symbol: string): boolean {
   const normalized = symbol.trim().toUpperCase();
   if (!normalized) return false;
+  if (SUPPORTED_CRYPTO_BASES.has(normalized)) return true;
   if (normalized.includes("/")) return true;
   return /^[A-Z0-9]{2,10}[-_](USD|USDT|USDC|BTC|ETH|EUR|GBP|JPY)$/.test(normalized);
 }
+
+const SUPPORTED_CRYPTO_BASES = new Set([
+  "AAVE",
+  "ALGO",
+  "AVAX",
+  "BAT",
+  "BCH",
+  "BTC",
+  "CRV",
+  "DOGE",
+  "DOT",
+  "ETH",
+  "GRT",
+  "LINK",
+  "LTC",
+  "MKR",
+  "NEAR",
+  "PAXG",
+  "SHIB",
+  "SOL",
+  "SUSHI",
+  "TRX",
+  "UNI",
+  "USDC",
+  "USDT",
+  "WBTC",
+  "XTZ",
+  "YFI",
+]);
 
 function deriveTranches(windowDays: number, cadenceDays: number): number {
   const cadence = Math.max(1, cadenceDays);
