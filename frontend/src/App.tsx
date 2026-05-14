@@ -134,6 +134,13 @@ export default function App() {
       const json = await res.json();
       const loadedBars = (json.bars as Bar[]) ?? [];
       const loadedEarningsEvents = (json.earningsEvents as EarningsEvent[] | undefined) ?? [];
+      console.info("[bars] loaded", {
+        symbol: normalizedSymbol,
+        timeframe,
+        range,
+        bars: loadedBars.length,
+        earningsEvents: loadedEarningsEvents.length,
+      });
       const payload: MarketBarsPayload = {
         bars: loadedBars,
         earningsEvents: loadedEarningsEvents,
@@ -185,7 +192,21 @@ export default function App() {
       signals: form.signals,
     });
     if (!computed) {
-      throw new Error("No trades were generated. Try a different date window or cadence.");
+      const debugContext = {
+        symbol,
+        timeframe: form.timeframe,
+        phase: form.phase ?? "both",
+        totalAmount: form.totalAmount,
+        cadenceDays: form.cadenceDays,
+        scaleInWindowDays: windows.scaleInWindowDays,
+        scaleOutWindowDays: windows.scaleOutWindowDays,
+        bars: assetBars.length,
+        benchmarkBars: benchmarkBars.length,
+      };
+      console.warn("[backtest] no trades generated", debugContext);
+      throw new Error(
+        "No trades were generated. Try increasing amount, changing dates/cadence, or using a different preset."
+      );
     }
     return computed;
   }

@@ -331,6 +331,7 @@ function runDirectionalBacktest(
   windowDays: number,
   startDate: string
 ): DirectionalBacktestResult | null {
+  const allowFractionalShares = isLikelyCryptoSymbol(cfg.symbol);
   const startTs = new Date(startDate).getTime();
   const endTs = startTs + windowDays * DAY_MS;
   const windowBars = cfg.bars.filter((b) => {
@@ -354,14 +355,25 @@ function runDirectionalBacktest(
 
   const friction = normalizeFriction(cfg.friction);
 
-  // For scale-out: derive starting whole-share count from position value at window's first bar.
+  // For scale-out: derive starting position size from window's first bar.
   let startShares = 0;
   if (direction === "scale_out" && windowBars.length > 0) {
     const startPrice = applyExecutionPrice(windowBars[0].c, "scale_out", friction);
-    startShares = startPrice > 0 ? Math.floor(cfg.totalAmount / startPrice) : 0;
+    startShares = startPrice > 0
+      ? allowFractionalShares
+        ? cfg.totalAmount / startPrice
+        : Math.floor(cfg.totalAmount / startPrice)
+      : 0;
   }
 
-  const smartTrades = matchScheduledTrades(cfg.bars, smartSchedule, direction, friction, startShares);
+  const smartTrades = matchScheduledTrades(
+    cfg.bars,
+    smartSchedule,
+    direction,
+    friction,
+    startShares,
+    allowFractionalShares
+  );
   if (smartTrades.length === 0) return null;
 
   const smart = summariseTrades(smartTrades);
@@ -420,12 +432,13 @@ function matchScheduledTrades(
   schedule: ScheduledTrade[],
   direction: Direction,
   friction: ExecutionFrictionConfig,
-  startShares = 0
+  startShares = 0,
+  allowFractionalShares = false
 ): BacktestTrade[] {
   const trades: BacktestTrade[] = [];
   const isOut = direction === "scale_out";
 
-  // For scale-out: convert signal-weighted USD amounts into whole-share allocations so
+  // For scale-out: convert signal-weighted USD amounts into share allocations so
   // we're selling a fixed position (startShares) rather than a fixed dollar amount.
   const totalScheduleUsd = schedule.reduce((s, st) => s + st.amountUsd, 0);
   const sharesMode = isOut && startShares > 0 && totalScheduleUsd > 0;
@@ -450,16 +463,26 @@ function matchScheduledTrades(
       const isLastScheduled = i === schedule.length - 1;
       tradeShares = isLastScheduled
         ? runningShares
-        : Math.floor((st.amountUsd / totalScheduleUsd) * startShares);
+        : allowFractionalShares
+          ? (st.amountUsd / totalScheduleUsd) * startShares
+          : Math.floor((st.amountUsd / totalScheduleUsd) * startShares);
       tradeAmountUsd = tradeShares * execPrice;
     } else {
-      // Scale-in: buy whole shares only; carry unspent amount forward.
+      // Stocks/ETFs stay whole-share; crypto can use fractional size.
       const plannedAmount = st.amountUsd + budgetCarry;
-      tradeShares = Math.floor(plannedAmount / execPrice);
-      tradeAmountUsd = tradeShares * execPrice;
-      budgetCarry = plannedAmount - tradeAmountUsd;
-      if (tradeShares < 1) continue; // can't afford even 1 share yet — carry forward
+      if (allowFractionalShares) {
+        tradeShares = plannedAmount / execPrice;
+        tradeAmountUsd = plannedAmount;
+        budgetCarry = 0;
+      } else {
+        tradeShares = Math.floor(plannedAmount / execPrice);
+        tradeAmountUsd = tradeShares * execPrice;
+        budgetCarry = plannedAmount - tradeAmountUsd;
+        if (tradeShares < 1) continue; // can't afford even 1 share yet — carry forward
+      }
     }
+
+    if (tradeShares <= 1e-9 || tradeAmountUsd <= 1e-9) continue;
 
     runningShares = isOut
       ? Math.max(0, runningShares - tradeShares)
