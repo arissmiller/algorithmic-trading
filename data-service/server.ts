@@ -69,6 +69,10 @@ const server = http.createServer(async (req, res) => {
   if (allowedOrigin) {
     res.setHeader("Access-Control-Allow-Origin", allowedOrigin);
     res.setHeader("Vary", "Origin");
+  } else if (isOriginExemptPath) {
+    // Keep health and other explicitly-exempt routes readable across origins so
+    // status checks do not fail hard while protected routes remain allowlisted.
+    res.setHeader("Access-Control-Allow-Origin", "*");
   }
 
   if (req.method === "OPTIONS") {
