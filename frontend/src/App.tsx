@@ -6,7 +6,7 @@ import RunQueueResults, { RunQueueResult } from "./components/RunQueueResults";
 import AIControlCenter from "./components/AIControlCenter";
 import { BacktestResult, runBacktest } from "./lib/backtest";
 import { Bar, EarningsEvent } from "./lib/signals";
-import { analyzeMarketCondition } from "./lib/marketConditions";
+import { analyzeMarketCondition, MarketConditionRecommendation } from "./lib/marketConditions";
 
 const STOCK_BENCHMARK_SYMBOL = "^GSPC";
 const CRYPTO_BENCHMARK_SYMBOL = "BTC/USD";
@@ -256,10 +256,10 @@ export default function App() {
       scaleOutStartDate,
       scaleOutWindowDays: scaleOutDays,
       randomEnsembleSamples: 400,
-      aggressiveness: preset.config.aggressiveness,
+      aggressiveness: run.aggressivenessOverride ?? preset.config.aggressiveness,
       accountType: isLikelyCryptoSymbol(symbol) ? "tax_advantaged" : "taxable",
       washSaleWindowDays: 30,
-      signals: preset.config.signals.map((sw) => ({ ...sw, signal: { ...sw.signal } })),
+      signals: (run.signalsOverride ?? preset.config.signals).map((sw) => ({ ...sw, signal: { ...sw.signal } })),
     };
   }
 
@@ -431,6 +431,22 @@ function BacktestingPage({
     setRunQueueResults(results);
   }
 
+  function handleApplyRecommendation(rec: MarketConditionRecommendation, sourceRun: BacktestRun) {
+    const config = rec.recommendation.strategyConfig;
+    const newRun: BacktestRun = {
+      id: crypto.randomUUID(),
+      presetKey: config.presetKey,
+      symbol: sourceRun.symbol,
+      startDate: sourceRun.startDate,
+      durationDays: sourceRun.durationDays,
+      cadenceDays: config.cadenceDays,
+      totalAmount: sourceRun.totalAmount,
+      signalsOverride: config.signals.map((sw) => ({ ...sw, signal: { ...sw.signal } })),
+      aggressivenessOverride: config.aggressiveness,
+    };
+    setRuns((prev) => [...prev, newRun]);
+  }
+
   return (
     <div className="flex h-full overflow-hidden">
       <aside className="w-72 flex-shrink-0 border-r border-border overflow-y-auto">
@@ -459,7 +475,7 @@ function BacktestingPage({
           </div>
         )}
         <div className="flex-1 min-h-0">
-          <RunQueueResults results={runQueueResults} />
+          <RunQueueResults results={runQueueResults} onApplyRecommendation={handleApplyRecommendation} />
         </div>
       </div>
     </div>

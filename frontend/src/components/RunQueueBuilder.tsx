@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { STRATEGY_PRESETS, StrategyPresetKey } from "./StrategyBuilder";
+import type { SignalWeight } from "../lib/signals";
 
 export interface BacktestRun {
   id: string;
@@ -9,6 +10,10 @@ export interface BacktestRun {
   durationDays: number;
   cadenceDays: number;
   totalAmount: number;
+  /** When set, overrides the preset's signals for this run. */
+  signalsOverride?: SignalWeight[];
+  /** When set, overrides the preset's aggressiveness for this run. */
+  aggressivenessOverride?: number;
 }
 
 const DURATION_OPTIONS = [

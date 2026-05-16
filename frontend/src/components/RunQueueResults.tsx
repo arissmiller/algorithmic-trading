@@ -1,5 +1,5 @@
 import type { BacktestResult } from "../lib/backtest";
-import { Bar, EarningsEvent } from "../lib/signals";
+import { Bar, EarningsEvent, SIGNAL_META } from "../lib/signals";
 import type { MarketConditionRecommendation } from "../lib/marketConditions";
 import { STRATEGY_PRESETS } from "./StrategyBuilder";
 import type { StrategyForm } from "./StrategyBuilder";
@@ -34,7 +34,13 @@ function winRate(nums: number[]) {
   return nums.length > 0 ? (nums.filter((v) => v > 0).length / nums.length) * 100 : null;
 }
 
-export default function RunQueueResults({ results }: { results: RunQueueResult[] }) {
+export default function RunQueueResults({
+  results,
+  onApplyRecommendation,
+}: {
+  results: RunQueueResult[];
+  onApplyRecommendation?: (rec: MarketConditionRecommendation, run: BacktestRun) => void;
+}) {
   if (results.length === 0) {
     return (
       <div className="flex h-full items-center justify-center text-xs text-text-secondary">
@@ -126,13 +132,21 @@ export default function RunQueueResults({ results }: { results: RunQueueResult[]
 
       {/* Per-run sections */}
       {results.map((r, i) => (
-        <RunSection key={r.run.id} r={r} index={i} />
+        <RunSection key={r.run.id} r={r} index={i} onApplyRecommendation={onApplyRecommendation} />
       ))}
     </div>
   );
 }
 
-function RunSection({ r, index }: { r: RunQueueResult; index: number }) {
+function RunSection({
+  r,
+  index,
+  onApplyRecommendation,
+}: {
+  r: RunQueueResult;
+  index: number;
+  onApplyRecommendation?: (rec: MarketConditionRecommendation, run: BacktestRun) => void;
+}) {
   const res = r.result;
   const phase = res?.phase;
   const preset = STRATEGY_PRESETS.find((p) => p.key === r.run.presetKey);
@@ -158,14 +172,46 @@ function RunSection({ r, index }: { r: RunQueueResult; index: number }) {
 
       {recommendation && (
         <div className="px-4 py-2 border-b border-border/50 bg-surface-1/50">
-          <p className="text-[10px] uppercase tracking-widest text-text-secondary">Market condition</p>
-          <p className="mt-0.5 text-xs text-text-primary">
-            {formatConditionLabel(recommendation.condition)} · confidence {fmtPct(recommendation.confidence * 100)}
-          </p>
-          <p className="mt-0.5 text-[11px] text-text-secondary">
-            Recommended strategy: <span className="text-text-primary">{recommendation.recommendation.label}</span>
-          </p>
-          <p className="mt-0.5 text-[10px] text-text-secondary">{recommendation.recommendation.note}</p>
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex-1 min-w-0">
+              <p className="text-[10px] uppercase tracking-widest text-text-secondary">Market condition</p>
+              <p className="mt-0.5 text-xs text-text-primary">
+                {formatConditionLabel(recommendation.condition)} · confidence {fmtPct(recommendation.confidence * 100)}
+              </p>
+              <p className="mt-0.5 text-[11px] text-text-secondary">
+                Recommended strategy: <span className="text-text-primary">{recommendation.recommendation.label}</span>
+              </p>
+              <p className="mt-0.5 text-[10px] text-text-secondary leading-snug">{recommendation.recommendation.note}</p>
+              <div className="mt-1.5 flex flex-wrap gap-1.5">
+                {recommendation.recommendation.strategyConfig.signals.map((sw) => {
+                  const meta = SIGNAL_META[sw.signal.type];
+                  return (
+                    <span
+                      key={sw.signal.type}
+                      className="rounded border border-border bg-surface-2 px-1.5 py-0.5 text-[10px] text-text-secondary"
+                    >
+                      {meta?.label ?? sw.signal.type} {Math.round(sw.weight * 100)}%
+                    </span>
+                  );
+                })}
+                <span className="rounded border border-border bg-surface-2 px-1.5 py-0.5 text-[10px] text-text-secondary">
+                  every {recommendation.recommendation.strategyConfig.cadenceDays}d
+                </span>
+                <span className="rounded border border-border bg-surface-2 px-1.5 py-0.5 text-[10px] text-text-secondary">
+                  aggr {Math.round(recommendation.recommendation.strategyConfig.aggressiveness * 100)}%
+                </span>
+              </div>
+            </div>
+            {onApplyRecommendation && (
+              <button
+                type="button"
+                onClick={() => onApplyRecommendation(recommendation, r.run)}
+                className="flex-shrink-0 rounded border border-accent/50 bg-accent/10 px-2.5 py-1 text-[10px] font-semibold text-accent hover:bg-accent/20 transition-colors"
+              >
+                + Add to Queue
+              </button>
+            )}
+          </div>
         </div>
       )}
 
