@@ -6,6 +6,7 @@ import RunQueueResults, { RunQueueResult } from "./components/RunQueueResults";
 import AIControlCenter from "./components/AIControlCenter";
 import { BacktestResult, runBacktest } from "./lib/backtest";
 import { Bar, EarningsEvent } from "./lib/signals";
+import { analyzeMarketCondition } from "./lib/marketConditions";
 
 const STOCK_BENCHMARK_SYMBOL = "^GSPC";
 const CRYPTO_BENCHMARK_SYMBOL = "BTC/USD";
@@ -301,12 +302,14 @@ export default function App() {
         }
 
         const computed = computeResultForForm(form, assetBars, benchmarkBars, benchmarkSymbol);
+        const marketRecommendation = analyzeMarketCondition(assetBars);
         results.push({
           run,
           form,
           result: computed,
           bars: assetBars,
           earningsEvents: assetEarningsEvents,
+          marketRecommendation,
           error: null,
         });
       } catch (e) {
@@ -316,6 +319,7 @@ export default function App() {
           result: null,
           bars: [],
           earningsEvents: [],
+          marketRecommendation: null,
           error: e instanceof Error ? e.message : "Unknown error",
         });
       }

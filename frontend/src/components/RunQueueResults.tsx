@@ -1,5 +1,6 @@
 import type { BacktestResult } from "../lib/backtest";
 import { Bar, EarningsEvent } from "../lib/signals";
+import type { MarketConditionRecommendation } from "../lib/marketConditions";
 import { STRATEGY_PRESETS } from "./StrategyBuilder";
 import type { StrategyForm } from "./StrategyBuilder";
 import type { BacktestRun } from "./RunQueueBuilder";
@@ -12,6 +13,7 @@ export interface RunQueueResult {
   result: BacktestResult | null;
   bars: Bar[];
   earningsEvents: EarningsEvent[];
+  marketRecommendation: MarketConditionRecommendation | null;
   error: string | null;
 }
 
@@ -134,6 +136,7 @@ function RunSection({ r, index }: { r: RunQueueResult; index: number }) {
   const res = r.result;
   const phase = res?.phase;
   const preset = STRATEGY_PRESETS.find((p) => p.key === r.run.presetKey);
+  const recommendation = r.marketRecommendation;
 
   const inComp = res?.scaleIn?.comparison;
   const outComp = res?.scaleOut?.comparison;
@@ -151,6 +154,19 @@ function RunSection({ r, index }: { r: RunQueueResult; index: number }) {
 
       {r.error && (
         <div className="px-4 py-3 text-xs text-sell">{r.error}</div>
+      )}
+
+      {recommendation && (
+        <div className="px-4 py-2 border-b border-border/50 bg-surface-1/50">
+          <p className="text-[10px] uppercase tracking-widest text-text-secondary">Market condition</p>
+          <p className="mt-0.5 text-xs text-text-primary">
+            {formatConditionLabel(recommendation.condition)} · confidence {fmtPct(recommendation.confidence * 100)}
+          </p>
+          <p className="mt-0.5 text-[11px] text-text-secondary">
+            Recommended strategy: <span className="text-text-primary">{recommendation.recommendation.label}</span>
+          </p>
+          <p className="mt-0.5 text-[10px] text-text-secondary">{recommendation.recommendation.note}</p>
+        </div>
       )}
 
       {res && (
@@ -208,6 +224,13 @@ function RunSection({ r, index }: { r: RunQueueResult; index: number }) {
       )}
     </div>
   );
+}
+
+function formatConditionLabel(condition: MarketConditionRecommendation["condition"]): string {
+  if (condition === "high_volatility_selloff") return "High-volatility selloff";
+  if (condition === "bullish_trend") return "Bullish trend";
+  if (condition === "pullback_mean_reversion") return "Pullback / mean-reversion";
+  return "Range-bound";
 }
 
 function ComparisonChip({
