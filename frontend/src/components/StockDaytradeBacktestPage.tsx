@@ -52,6 +52,13 @@ type ChecklistDatesPayload = {
   source: ChecklistDateSource;
 };
 
+type SymbolChecklistItem = {
+  key: string;
+  symbol: string;
+  date: string;
+  source: ChecklistDateSource;
+};
+
 const inputClass =
   "w-full rounded border border-border bg-surface-3 px-2.5 py-1.5 text-xs text-text-primary focus:border-accent focus:outline-none";
 
@@ -76,11 +83,12 @@ export default function StockDaytradeBacktestPage({ apiPrefix }: { apiPrefix: st
   const [batchRuns, setBatchRuns] = useState<BatchWindowRun[]>([]);
   const [form, setForm] = useState<FormState>(() => defaultForm());
 
-  const [symbolEarningsDates, setSymbolEarningsDates] = useState<string[]>([]);
-  const [selectedEarningsDates, setSelectedEarningsDates] = useState<string[]>([]);
-  const [symbolEarningsLoading, setSymbolEarningsLoading] = useState(false);
-  const [symbolEarningsError, setSymbolEarningsError] = useState<string | null>(null);
-  const [checklistDateSource, setChecklistDateSource] = useState<ChecklistDateSource>("earnings");
+  const [checklistItems, setChecklistItems] = useState<SymbolChecklistItem[]>([]);
+  const [selectedChecklistKeys, setSelectedChecklistKeys] = useState<string[]>([]);
+  const [checklistLoading, setChecklistLoading] = useState(false);
+  const [checklistError, setChecklistError] = useState<string | null>(null);
+  const [hasAnyAvailableFallback, setHasAnyAvailableFallback] = useState(false);
+  const [hasAnyFallbackEarnings, setHasAnyFallbackEarnings] = useState(false);
 
   const barsCacheRef = useRef<Record<string, BarsPayload>>({});
   const earningsDatesCacheRef = useRef<Record<string, ChecklistDatesPayload>>({});
@@ -176,42 +184,90 @@ export default function StockDaytradeBacktestPage({ apiPrefix }: { apiPrefix: st
   }, [batchRuns]);
 
   useEffect(() => {
-    const normalizedSymbol = form.symbol.trim().toUpperCase();
-    if (!normalizedSymbol) {
-      setSymbolEarningsDates([]);
-      setSelectedEarningsDates([]);
-      setSymbolEarningsError(null);
-      setChecklistDateSource("earnings");
+    const symbols = parseSymbolsInput(form.symbol);
+    if (symbols.length === 0) {
+      setChecklistItems([]);
+      setSelectedChecklistKeys([]);
+      setChecklistError(null);
+      setHasAnyAvailableFallback(false);
+      setHasAnyFallbackEarnings(false);
       return;
     }
 
     let cancelled = false;
 
     async function load() {
-      setSymbolEarningsLoading(true);
-      setSymbolEarningsError(null);
+      setChecklistLoading(true);
+      setChecklistError(null);
 
       try {
-        const dates = await fetchSymbolEarningsDates(normalizedSymbol);
+        const nextItems: SymbolChecklistItem[] = [];
+        const errors: string[] = [];
+        let sawAvailableFallback = false;
+        let sawFallbackEarnings = false;
+
+        for (const symbol of symbols) {
+          try {
+            const dates = await fetchSymbolEarningsDates(symbol);
+            if (dates.source === "available") sawAvailableFallback = true;
+            if (dates.source === "fallback_earnings") sawFallbackEarnings = true;
+            for (const date of dates.dates) {
+              nextItems.push({
+                key: checklistKeyFor(symbol, date),
+                symbol,
+                date,
+                source: dates.source,
+              });
+            }
+          } catch (error) {
+            const message = error instanceof Error ? error.message : "Failed to load dates";
+            errors.push(`${symbol}: ${message}`);
+          }
+        }
+
+        nextItems.sort((a, b) => {
+          const symbolOrder = a.symbol.localeCompare(b.symbol);
+          if (symbolOrder !== 0) return symbolOrder;
+          return a.date.localeCompare(b.date);
+        });
+
+        const dedupedItems: SymbolChecklistItem[] = [];
+        const seenKeys = new Set<string>();
+        for (const item of nextItems) {
+          if (seenKeys.has(item.key)) continue;
+          seenKeys.add(item.key);
+          dedupedItems.push(item);
+        }
+
         if (!cancelled) {
-          setSymbolEarningsDates(dates.dates);
-          setChecklistDateSource(dates.source);
+          setChecklistItems(dedupedItems);
+          setHasAnyAvailableFallback(sawAvailableFallback);
+          setHasAnyFallbackEarnings(sawFallbackEarnings);
           const defaultSelection =
-            dates.dates.length > MAX_AUTO_SELECTED_DATES
-              ? dates.dates.slice(-MAX_AUTO_SELECTED_DATES)
-              : dates.dates;
-          setSelectedEarningsDates(defaultSelection);
+            dedupedItems.length > MAX_AUTO_SELECTED_DATES
+              ? dedupedItems.slice(-MAX_AUTO_SELECTED_DATES).map((item) => item.key)
+              : dedupedItems.map((item) => item.key);
+          setSelectedChecklistKeys(defaultSelection);
+
+          if (errors.length > 0) {
+            const preview = errors.slice(0, 3).join(" | ");
+            const suffix = errors.length > 3 ? ` (+${errors.length - 3} more)` : "";
+            setChecklistError(`Some symbols failed to load: ${preview}${suffix}`);
+          } else {
+            setChecklistError(null);
+          }
         }
       } catch (error) {
         if (!cancelled) {
-          setSymbolEarningsDates([]);
-          setSelectedEarningsDates([]);
-          setChecklistDateSource("earnings");
-          setSymbolEarningsError(error instanceof Error ? error.message : "Failed to load earnings dates");
+          setChecklistItems([]);
+          setSelectedChecklistKeys([]);
+          setHasAnyAvailableFallback(false);
+          setHasAnyFallbackEarnings(false);
+          setChecklistError(error instanceof Error ? error.message : "Failed to load checklist dates");
         }
       } finally {
         if (!cancelled) {
-          setSymbolEarningsLoading(false);
+          setChecklistLoading(false);
         }
       }
     }
@@ -312,15 +368,20 @@ export default function StockDaytradeBacktestPage({ apiPrefix }: { apiPrefix: st
     setRunError(null);
 
     try {
-      const symbol = form.symbol.trim().toUpperCase();
-      if (!symbol) throw new Error("Enter a stock symbol.");
+      if (parseSymbolsInput(form.symbol).length === 0) {
+        throw new Error("Enter at least one stock symbol.");
+      }
       if (!form.allowLong && !form.allowShort) {
         throw new Error("Enable at least one direction (long or short).");
       }
 
-      const selected = selectedEarningsDates
-        .filter((date) => symbolEarningsDates.includes(date))
-        .sort((a, b) => a.localeCompare(b));
+      const selected = checklistItems
+        .filter((item) => selectedChecklistKeys.includes(item.key))
+        .sort((a, b) => {
+          const symbolOrder = a.symbol.localeCompare(b.symbol);
+          if (symbolOrder !== 0) return symbolOrder;
+          return a.date.localeCompare(b.date);
+        });
 
       if (selected.length === 0) {
         throw new Error("Select at least one checklist date.");
@@ -332,7 +393,9 @@ export default function StockDaytradeBacktestPage({ apiPrefix }: { apiPrefix: st
 
       const nextRuns: BatchWindowRun[] = [];
 
-      for (const earningsDate of selected) {
+      for (const item of selected) {
+        const symbol = item.symbol;
+        const earningsDate = item.date;
         const startDate = addDaysIso(earningsDate, -form.windowDaysBefore);
         const endDate = addDaysIso(earningsDate, form.windowDaysAfter);
         const runId = `${symbol}-${earningsDate}`;
@@ -397,16 +460,16 @@ export default function StockDaytradeBacktestPage({ apiPrefix }: { apiPrefix: st
     }
   }
 
-  function toggleEarningsDate(date: string): void {
-    setSelectedEarningsDates((current) => {
-      if (current.includes(date)) {
-        return current.filter((value) => value !== date);
+  function toggleChecklistKey(key: string): void {
+    setSelectedChecklistKeys((current) => {
+      if (current.includes(key)) {
+        return current.filter((value) => value !== key);
       }
-      return [...current, date].sort((a, b) => a.localeCompare(b));
+      return [...current, key].sort((a, b) => a.localeCompare(b));
     });
   }
 
-  const hasChecklistDates = symbolEarningsDates.length > 0;
+  const hasChecklistDates = checklistItems.length > 0;
 
   return (
     <div className="flex h-full overflow-hidden">
@@ -415,17 +478,17 @@ export default function StockDaytradeBacktestPage({ apiPrefix }: { apiPrefix: st
           Tech Earnings ORB
         </p>
         <p className="text-[11px] text-text-secondary leading-relaxed">
-          Select dates from the checklist for the chosen symbol, then run ORB windows and inspect a chart for each generated trade.
+          Enter one or more symbols, select checklist dates, then run ORB windows and inspect a chart for each generated trade.
         </p>
 
-        <Field label="Symbol">
+        <Field label="Symbols (comma separated)">
           <input
             className={inputClass}
             value={form.symbol}
             onChange={(event) =>
               setForm((current) => ({ ...current, symbol: event.target.value.toUpperCase() }))
             }
-            placeholder="AAPL"
+            placeholder="AAPL, MSFT, NVDA"
           />
         </Field>
 
@@ -467,43 +530,46 @@ export default function StockDaytradeBacktestPage({ apiPrefix }: { apiPrefix: st
             <div className="flex items-center justify-between gap-2">
               <p className="text-[10px] uppercase tracking-wide text-text-secondary">Date Checklist</p>
               <p className="text-[10px] text-text-secondary">
-                {selectedEarningsDates.length}/{symbolEarningsDates.length} selected
+                {selectedChecklistKeys.length}/{checklistItems.length} selected
               </p>
             </div>
 
-            {symbolEarningsLoading ? (
+            {checklistLoading ? (
               <p className="mt-2 text-[11px] text-text-secondary">Loading checklist dates...</p>
-            ) : symbolEarningsError ? (
-              <p className="mt-2 text-[11px] text-sell">{symbolEarningsError}</p>
             ) : !hasChecklistDates ? (
-              <p className="mt-2 text-[11px] text-text-secondary">No dates available for this symbol.</p>
+              <p className="mt-2 text-[11px] text-text-secondary">
+                {checklistError ?? "No dates available for these symbols."}
+              </p>
             ) : (
               <>
-                {checklistDateSource === "available" ? (
+                {checklistError ? (
+                  <p className="mt-2 text-[10px] text-sell">{checklistError}</p>
+                ) : null}
+                {hasAnyAvailableFallback ? (
                   <p className="mt-2 text-[10px] text-text-secondary">
-                    No earnings detected. Showing all available bar dates instead.
+                    Some symbols had no detected earnings dates. Those symbols use all available bar dates.
                   </p>
-                ) : checklistDateSource === "fallback_earnings" ? (
+                ) : hasAnyFallbackEarnings ? (
                   <p className="mt-2 text-[10px] text-text-secondary">
-                    Using built-in earnings date list for this symbol.
+                    Some symbols are using built-in earnings date lists.
                   </p>
                 ) : null}
-                {symbolEarningsDates.length > MAX_AUTO_SELECTED_DATES ? (
+                {checklistItems.length > MAX_AUTO_SELECTED_DATES ? (
                   <p className="mt-1 text-[10px] text-text-secondary">
-                    Auto-selected the most recent {MAX_AUTO_SELECTED_DATES} dates. Use Select All for the full list.
+                    Auto-selected the most recent {MAX_AUTO_SELECTED_DATES} windows. Use Select All for the full list.
                   </p>
                 ) : null}
                 <div className="mt-2 flex gap-2">
                   <button
                     type="button"
-                    onClick={() => setSelectedEarningsDates([...symbolEarningsDates])}
+                    onClick={() => setSelectedChecklistKeys(checklistItems.map((item) => item.key))}
                     className="rounded border border-border bg-surface-2 px-2 py-1 text-[10px] text-text-secondary hover:text-text-primary"
                   >
                     Select All
                   </button>
                   <button
                     type="button"
-                    onClick={() => setSelectedEarningsDates([])}
+                    onClick={() => setSelectedChecklistKeys([])}
                     className="rounded border border-border bg-surface-2 px-2 py-1 text-[10px] text-text-secondary hover:text-text-primary"
                   >
                     Clear All
@@ -511,14 +577,15 @@ export default function StockDaytradeBacktestPage({ apiPrefix }: { apiPrefix: st
                 </div>
 
                 <div className="mt-2 max-h-56 overflow-y-auto rounded border border-border/60 bg-surface-2 p-2">
-                  {symbolEarningsDates.map((date) => (
-                    <label key={date} className="mb-1 flex items-center gap-2 text-[11px] text-text-primary last:mb-0">
+                  {checklistItems.map((item) => (
+                    <label key={item.key} className="mb-1 flex items-center gap-2 text-[11px] text-text-primary last:mb-0">
                       <input
                         type="checkbox"
-                        checked={selectedEarningsDates.includes(date)}
-                        onChange={() => toggleEarningsDate(date)}
+                        checked={selectedChecklistKeys.includes(item.key)}
+                        onChange={() => toggleChecklistKey(item.key)}
                       />
-                      <span className="font-mono">{date}</span>
+                      <span className="font-mono">{item.symbol}</span>
+                      <span className="font-mono text-text-secondary">{item.date}</span>
                     </label>
                   ))}
                 </div>
@@ -605,7 +672,7 @@ export default function StockDaytradeBacktestPage({ apiPrefix }: { apiPrefix: st
         <button
           type="button"
           onClick={() => void runBacktest()}
-          disabled={running || symbolEarningsLoading || selectedEarningsDates.length === 0}
+          disabled={running || checklistLoading || selectedChecklistKeys.length === 0}
           className="w-full rounded bg-accent py-2.5 text-sm font-semibold text-white hover:bg-accent/90 disabled:opacity-60"
         >
           {running ? "Running…" : "Run Tech Earnings ORB Batch"}
@@ -625,7 +692,7 @@ export default function StockDaytradeBacktestPage({ apiPrefix }: { apiPrefix: st
 
         {batchRuns.length === 0 ? (
           <div className="flex-1 flex items-center justify-center text-xs text-text-secondary">
-            Run to test the selected checklist dates for the chosen symbol.
+            Run to test the selected checklist dates across the chosen symbols.
           </div>
         ) : (
           <div className="flex-1 overflow-y-auto">
@@ -653,6 +720,7 @@ export default function StockDaytradeBacktestPage({ apiPrefix }: { apiPrefix: st
                   <table className="w-full text-xs">
                     <thead className="sticky top-0 bg-surface-1 border-b border-border text-text-secondary">
                       <tr>
+                        <th className="px-3 py-2 text-left">Symbol</th>
                         <th className="px-3 py-2 text-left">Checklist Date</th>
                         <th className="px-3 py-2 text-left">Window</th>
                         <th className="px-3 py-2 text-right">Trades</th>
@@ -663,6 +731,7 @@ export default function StockDaytradeBacktestPage({ apiPrefix }: { apiPrefix: st
                     <tbody>
                       {batchRuns.map((run) => (
                         <tr key={run.id} className="border-b border-border/50">
+                          <td className="px-3 py-2 font-mono text-text-primary">{run.symbol}</td>
                           <td className="px-3 py-2 font-mono text-text-primary">{run.earningsDate}</td>
                           <td className="px-3 py-2 text-text-secondary">
                             {run.startDate} to {run.endDate}
@@ -688,6 +757,7 @@ export default function StockDaytradeBacktestPage({ apiPrefix }: { apiPrefix: st
                   <table className="w-full text-xs">
                     <thead className="sticky top-0 bg-surface-1 border-b border-border text-text-secondary">
                       <tr>
+                        <th className="px-3 py-2 text-left">Symbol</th>
                         <th className="px-3 py-2 text-left">Date</th>
                         <th className="px-3 py-2 text-left">Session</th>
                         <th className="px-3 py-2 text-left">Side</th>
@@ -700,13 +770,14 @@ export default function StockDaytradeBacktestPage({ apiPrefix }: { apiPrefix: st
                     <tbody>
                       {batchFlattenedTrades.length === 0 ? (
                         <tr>
-                          <td colSpan={7} className="px-3 py-3 text-text-secondary">
+                          <td colSpan={8} className="px-3 py-3 text-text-secondary">
                             No trades generated across the selected dates.
                           </td>
                         </tr>
                       ) : (
                         batchFlattenedTrades.map(({ run, trade }) => (
                           <tr key={`${run.id}-${trade.id}`} className="border-b border-border/50">
+                            <td className="px-3 py-2 font-mono text-text-primary">{run.symbol}</td>
                             <td className="px-3 py-2 font-mono text-text-primary">{run.earningsDate}</td>
                             <td className="px-3 py-2 text-text-secondary">{trade.sessionDate}</td>
                             <td className={`px-3 py-2 font-semibold ${trade.side === "long" ? "text-buy" : "text-sell"}`}>
@@ -845,7 +916,7 @@ function sliceBarsForTrade(bars: Bar[], entryDate: string, exitDate: string, pad
 
 function defaultForm(): FormState {
   return {
-    symbol: "AAPL",
+    symbol: "AAPL,MSFT,NVDA",
     initialCapital: 25_000,
     riskPerTradePct: 1,
     rewardRisk: 2,
@@ -854,6 +925,19 @@ function defaultForm(): FormState {
     windowDaysBefore: 2,
     windowDaysAfter: 2,
   };
+}
+
+function checklistKeyFor(symbol: string, date: string): string {
+  return `${symbol}::${date}`;
+}
+
+function parseSymbolsInput(value: string): string[] {
+  if (!value.trim()) return [];
+  const symbols = value
+    .split(/[\s,]+/)
+    .map((item) => item.trim().toUpperCase())
+    .filter((item) => item.length > 0);
+  return Array.from(new Set(symbols));
 }
 
 function normalizeIsoDateInput(value: string): string | null {
