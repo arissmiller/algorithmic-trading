@@ -22,7 +22,7 @@ export default async function handler(req: any, res: any) {
   const rangeParam = firstQueryValue(req.query?.range) ?? null;
   const timeframeParam = firstQueryValue(req.query?.timeframe);
   const timeframe =
-    timeframeParam === "1Hour" || timeframeParam === "15Min"
+    timeframeParam === "1Hour" || timeframeParam === "15Min" || timeframeParam === "5Min"
       ? timeframeParam
       : "1Day";
   const startDate = firstQueryValue(req.query?.startDate);

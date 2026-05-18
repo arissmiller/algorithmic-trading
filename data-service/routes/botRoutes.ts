@@ -18,10 +18,23 @@ import {
   upsertUserWatchlist,
   UserWatchlistInput,
 } from "../watchlistExecution.ts";
+import {
+  getBackendManagedPaperBotList,
+  getBackendManagedPaperBotStatus,
+} from "../liveCryptoBot.ts";
+import {
+  getLiveSignals,
+  getLiveSignalsMonitorStatus,
+} from "../liveSignalsMonitor.ts";
 import { UserApiConnectionStore, UserApiConnectionInput } from "../userApiConnections.ts";
 import { BOT_TUNING, BOT_TUNING_PROFILES, BotTuningProfileKey } from "../botTuning.ts";
 import { fetchAlpacaAccountSnapshot } from "../core.ts";
-import { ENABLE_BOT_ENGINE, DEFAULT_OPERATOR_USER_ID } from "../config.ts";
+import {
+  ENABLE_BOT_ENGINE,
+  DEFAULT_OPERATOR_USER_ID,
+  ENABLE_BACKEND_PAPER_CRYPTO_RUNNER,
+  ENABLE_LIVE_SIGNALS_MONITOR,
+} from "../config.ts";
 import { readJsonBody } from "../httpUtils.ts";
 
 // ---------------------------------------------------------------------------
@@ -46,6 +59,101 @@ export async function handleBotRoutes(
   if (!url.pathname.startsWith("/api/bot/")) {
     res.writeHead(404);
     res.end(JSON.stringify({ error: "Not found" }));
+    return;
+  }
+
+  if (url.pathname === "/api/bot/strategy-profiles" && req.method === "GET") {
+    res.writeHead(200);
+    res.end(
+      JSON.stringify({
+        defaults: BOT_TUNING.defaults,
+        cadence: BOT_TUNING.cadence,
+        risk: BOT_TUNING.risk,
+        profiles: BOT_TUNING_PROFILES,
+      })
+    );
+    return;
+  }
+
+  // -------------------------------------------------------------------------
+  // Live strategy signals (read-only)
+  // -------------------------------------------------------------------------
+
+  if (url.pathname === "/api/bot/live-signals/status" && req.method === "GET") {
+    res.writeHead(200);
+    res.end(
+      JSON.stringify({
+        enabled: ENABLE_LIVE_SIGNALS_MONITOR,
+        monitor: getLiveSignalsMonitorStatus(),
+      })
+    );
+    return;
+  }
+
+  if (url.pathname === "/api/bot/live-signals" && req.method === "GET") {
+    const limit = Number(url.searchParams.get("limit") ?? "200");
+    const safeLimit = Math.max(1, Math.min(5_000, Math.round(limit) || 200));
+    const profileParam = url.searchParams.get("profile");
+    const timeframeParam = url.searchParams.get("timeframe");
+    const actionParam = url.searchParams.get("action");
+
+    const profile =
+      typeof profileParam === "string" && profileParam in BOT_TUNING_PROFILES
+        ? (profileParam as BotTuningProfileKey)
+        : null;
+    const timeframe =
+      timeframeParam === "1Hour" || timeframeParam === "1Day" ? timeframeParam : null;
+    const action = actionParam === "buy" || actionParam === "sell" || actionParam === "hold"
+      ? actionParam
+      : null;
+
+    const signals = getLiveSignals({
+      limit: safeLimit,
+      symbol: url.searchParams.get("symbol"),
+      profile,
+      timeframe,
+      action,
+    });
+
+    res.writeHead(200);
+    res.end(
+      JSON.stringify({
+        enabled: ENABLE_LIVE_SIGNALS_MONITOR,
+        monitor: getLiveSignalsMonitorStatus(),
+        signals,
+      })
+    );
+    return;
+  }
+
+  // -------------------------------------------------------------------------
+  // Backend paper runner observability (read-only)
+  // -------------------------------------------------------------------------
+
+  if (url.pathname === "/api/bot/paper-runner" && req.method === "GET") {
+    const bots = getBackendManagedPaperBotList();
+    res.writeHead(200);
+    res.end(
+      JSON.stringify({
+        enabled: ENABLE_BACKEND_PAPER_CRYPTO_RUNNER,
+        botCount: bots.length,
+        bots,
+      })
+    );
+    return;
+  }
+
+  const paperRunnerMatch = url.pathname.match(/^\/api\/bot\/paper-runner\/([^/]+)$/);
+  if (paperRunnerMatch && req.method === "GET") {
+    const id = decodeURIComponent(paperRunnerMatch[1]);
+    const bot = getBackendManagedPaperBotStatus(id);
+    if (!bot) {
+      res.writeHead(404);
+      res.end(JSON.stringify({ error: "Bot not found" }));
+      return;
+    }
+    res.writeHead(200);
+    res.end(JSON.stringify({ enabled: ENABLE_BACKEND_PAPER_CRYPTO_RUNNER, bot }));
     return;
   }
 

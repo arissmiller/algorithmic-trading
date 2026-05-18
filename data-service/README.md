@@ -42,6 +42,11 @@ Watchlist routes remain enabled:
 - `DELETE /api/bot/watchlists/:userId`
 - `POST /api/bot/watchlists/scan?timeframe=1Hour|1Day`
 - `GET /api/bot/watchlist-signals?limit=100`
+- `GET /api/bot/live-signals`
+- `GET /api/bot/live-signals/status`
+- `GET /api/bot/paper-runner`
+- `GET /api/bot/paper-runner/:id`
+- `GET /api/bot/strategy-profiles`
 
 ## Bot Campaign Parameters
 
@@ -109,6 +114,51 @@ Before exposing this service publicly, set these Railway environment variables:
 - `ENABLE_BOT_ENGINE`:
 	- Set to `true` to enable `/api/bot/list`, `/api/bot/start`, `/api/bot/stop/:id`, and `/api/bot/:id`.
 	- Default: `false` (returns 404 for bot engine control-plane routes).
+- `ENABLE_LIVE_SIGNALS_MONITOR`:
+	- Enables the backend live strategy signal monitor loop.
+	- Default: `false`
+- `LIVE_SIGNAL_SYMBOLS`:
+	- Comma-separated symbols monitored by the live signal engine.
+	- Example: `BTC/USD,ETH/USD,SOL/USD`
+- `LIVE_SIGNAL_PROFILES`:
+	- Optional comma-separated `botTuning` profile keys to monitor.
+	- When omitted, all profiles are monitored.
+- `LIVE_SIGNAL_HISTORY_LIMIT`:
+	- Max in-memory live signal rows retained for `/api/bot/live-signals`.
+	- Default: `500`
+- `ENABLE_BACKEND_PAPER_CRYPTO_RUNNER`:
+	- Enables backend-managed paper trading bot startup at server boot.
+	- Default: `false`
+- `BACKEND_PAPER_CRYPTO_SYMBOLS`:
+	- Comma-separated symbols for backend-managed paper bots.
+	- Example: `BTC/USD,ETH/USD`
+- `BACKEND_PAPER_CRYPTO_TIMEFRAME`:
+	- Polling timeframe for backend paper bots (`1Hour` or `1Day`).
+	- Default: `1Hour`
+- `BACKEND_PAPER_CRYPTO_ALLOCATION_USD`:
+	- Per-order notional (USD) used by backend-managed paper bots.
+	- Default: `100`
+- `BACKEND_PAPER_CRYPTO_DIRECTION_MODE`:
+	- Strategy mode for backend-managed paper bots.
+	- Supported: `long_only` (default), `trend_short_selloff` (short selloffs in downtrends, buy entries in uptrends).
+	- Default: `long_only`
+- `BACKEND_PAPER_CRYPTO_TREND_LOOKBACK_DAYS`:
+	- Lookback window used to classify trend regime for `trend_short_selloff`.
+	- Default: `10`
+- `BACKEND_PAPER_CRYPTO_TREND_BAND_PCT`:
+	- Minimum absolute return over the trend lookback window to classify uptrend/downtrend.
+	- Example: `0.015` = 1.5% band; inside band is treated as neutral.
+	- Default: `0.015`
+- `BACKEND_PAPER_CRYPTO_SELLOFF_START_THRESHOLD`:
+	- Selloff detection score threshold that activates short-entry conditions in `trend_short_selloff`.
+	- Default: `0.70`
+- `BACKEND_PAPER_CRYPTO_SELLOFF_END_THRESHOLD`:
+	- Selloff detection score threshold that deactivates selloff state and triggers short-cover conditions.
+	- Must be lower than start threshold.
+	- Default: `0.52`
+- `ALLOW_LIVE_CRYPTO_TRADING`:
+	- Safety switch required for non-paper live order submission.
+	- Default: `false`
 - `ORIGIN_EXEMPT_PATHS`:
 	- Optional comma-separated route list that should skip origin checks.
 	- Default: `/api/health`

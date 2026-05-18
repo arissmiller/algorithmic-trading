@@ -26,6 +26,43 @@ export const REQUIRE_ORIGIN_HEADER = parseBooleanEnv(
 );
 
 export const ENABLE_BOT_ENGINE = parseBooleanEnv("ENABLE_BOT_ENGINE", false);
+export const ENABLE_LIVE_SIGNALS_MONITOR = parseBooleanEnv(
+  "ENABLE_LIVE_SIGNALS_MONITOR",
+  false
+);
+export const LIVE_SIGNAL_SYMBOLS = parseCsvEnv("LIVE_SIGNAL_SYMBOLS");
+export const LIVE_SIGNAL_PROFILES = parseCsvEnv("LIVE_SIGNAL_PROFILES");
+export const LIVE_SIGNAL_HISTORY_LIMIT = Number(process.env.LIVE_SIGNAL_HISTORY_LIMIT ?? 500);
+export const ALLOW_LIVE_CRYPTO_TRADING = parseBooleanEnv(
+  "ALLOW_LIVE_CRYPTO_TRADING",
+  false
+);
+export const ENABLE_BACKEND_PAPER_CRYPTO_RUNNER = parseBooleanEnv(
+  "ENABLE_BACKEND_PAPER_CRYPTO_RUNNER",
+  false
+);
+export const BACKEND_PAPER_CRYPTO_SYMBOLS = parseCsvEnv("BACKEND_PAPER_CRYPTO_SYMBOLS");
+export const BACKEND_PAPER_CRYPTO_TIMEFRAME =
+  process.env.BACKEND_PAPER_CRYPTO_TIMEFRAME === "1Day" ? "1Day" : "1Hour";
+export const BACKEND_PAPER_CRYPTO_ALLOCATION_USD = Number(
+  process.env.BACKEND_PAPER_CRYPTO_ALLOCATION_USD ?? 100
+);
+export const BACKEND_PAPER_CRYPTO_DIRECTION_MODE =
+  process.env.BACKEND_PAPER_CRYPTO_DIRECTION_MODE === "trend_short_selloff"
+    ? "trend_short_selloff"
+    : "long_only";
+export const BACKEND_PAPER_CRYPTO_TREND_LOOKBACK_DAYS = Number(
+  process.env.BACKEND_PAPER_CRYPTO_TREND_LOOKBACK_DAYS ?? 10
+);
+export const BACKEND_PAPER_CRYPTO_TREND_BAND_PCT = Number(
+  process.env.BACKEND_PAPER_CRYPTO_TREND_BAND_PCT ?? 0.015
+);
+export const BACKEND_PAPER_CRYPTO_SELLOFF_START_THRESHOLD = Number(
+  process.env.BACKEND_PAPER_CRYPTO_SELLOFF_START_THRESHOLD ?? 0.7
+);
+export const BACKEND_PAPER_CRYPTO_SELLOFF_END_THRESHOLD = Number(
+  process.env.BACKEND_PAPER_CRYPTO_SELLOFF_END_THRESHOLD ?? 0.52
+);
 
 export const RATE_LIMIT_WINDOW_MS = Number(process.env.RATE_LIMIT_WINDOW_MS ?? 60_000);
 

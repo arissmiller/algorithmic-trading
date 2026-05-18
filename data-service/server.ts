@@ -1,6 +1,10 @@
 import http from "node:http";
 import { loadPersistedState } from "./botEngine.ts";
 import { loadPersistedWatchlists, startWatchlistExecution } from "./watchlistExecution.ts";
+import {
+  startBackendManagedPaperBots,
+} from "./liveCryptoBot.ts";
+import { startLiveSignalsMonitor } from "./liveSignalsMonitor.ts";
 import { UserApiConnectionStore } from "./userApiConnections.ts";
 import { handleBotRoutes } from "./routes/botRoutes.ts";
 import { handleBarsRoute } from "./routes/barsRoute.ts";
@@ -13,6 +17,16 @@ import {
   ORIGIN_EXEMPT_PATHS,
   REQUIRE_ORIGIN_HEADER,
   ENABLE_BOT_ENGINE,
+  ENABLE_BACKEND_PAPER_CRYPTO_RUNNER,
+  BACKEND_PAPER_CRYPTO_SYMBOLS,
+  BACKEND_PAPER_CRYPTO_TIMEFRAME,
+  BACKEND_PAPER_CRYPTO_ALLOCATION_USD,
+  BACKEND_PAPER_CRYPTO_DIRECTION_MODE,
+  BACKEND_PAPER_CRYPTO_TREND_LOOKBACK_DAYS,
+  BACKEND_PAPER_CRYPTO_TREND_BAND_PCT,
+  BACKEND_PAPER_CRYPTO_SELLOFF_START_THRESHOLD,
+  BACKEND_PAPER_CRYPTO_SELLOFF_END_THRESHOLD,
+  ENABLE_LIVE_SIGNALS_MONITOR,
   RATE_LIMIT_WINDOW_MS,
   RATE_LIMIT_MAX,
 } from "./config.ts";
@@ -126,6 +140,20 @@ server.listen(PORT, () => {
   } else {
     console.log("[bot-engine] disabled (set ENABLE_BOT_ENGINE=true to enable)");
   }
+  if (ENABLE_BACKEND_PAPER_CRYPTO_RUNNER) {
+    void initializeBackendPaperRunner();
+  } else {
+    console.log(
+      "[backend-paper-runner] disabled (set ENABLE_BACKEND_PAPER_CRYPTO_RUNNER=true to enable)"
+    );
+  }
+  if (ENABLE_LIVE_SIGNALS_MONITOR) {
+    startLiveSignalsMonitor();
+  } else {
+    console.log(
+      "[live-signals] disabled (set ENABLE_LIVE_SIGNALS_MONITOR=true to enable)"
+    );
+  }
   void initializeWatchlistExecution();
   void apiConnectionStore.load();
   startSecEarningsSyncLoop();
@@ -134,6 +162,36 @@ server.listen(PORT, () => {
 async function initializeWatchlistExecution(): Promise<void> {
   await loadPersistedWatchlists();
   startWatchlistExecution();
+}
+
+async function initializeBackendPaperRunner(): Promise<void> {
+  const symbols = BACKEND_PAPER_CRYPTO_SYMBOLS
+    .map((symbol) => symbol.trim().toUpperCase())
+    .filter(Boolean);
+  if (symbols.length === 0) {
+    console.log(
+      "[backend-paper-runner] enabled but no symbols configured (set BACKEND_PAPER_CRYPTO_SYMBOLS)"
+    );
+    return;
+  }
+
+  const ids = startBackendManagedPaperBots(
+    symbols.map((symbol) => ({
+      symbol,
+      timeframe: BACKEND_PAPER_CRYPTO_TIMEFRAME,
+      allocationUsd: BACKEND_PAPER_CRYPTO_ALLOCATION_USD,
+      directionMode: BACKEND_PAPER_CRYPTO_DIRECTION_MODE,
+      trendLookbackDays: BACKEND_PAPER_CRYPTO_TREND_LOOKBACK_DAYS,
+      trendBandPct: BACKEND_PAPER_CRYPTO_TREND_BAND_PCT,
+      selloffStartThreshold: BACKEND_PAPER_CRYPTO_SELLOFF_START_THRESHOLD,
+      selloffEndThreshold: BACKEND_PAPER_CRYPTO_SELLOFF_END_THRESHOLD,
+    }))
+  );
+
+  console.log(
+    `[backend-paper-runner] started ${ids.length} bot(s) for ${symbols.join(", ")} ` +
+      `(mode=${BACKEND_PAPER_CRYPTO_DIRECTION_MODE}, timeframe=${BACKEND_PAPER_CRYPTO_TIMEFRAME})`
+  );
 }
 
 function resolveAllowedOrigin(origin: string | null): string | null {

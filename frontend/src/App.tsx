@@ -4,7 +4,13 @@ import { STRATEGY_PRESETS, StrategyForm } from "./components/StrategyBuilder";
 import RunQueueBuilder, { BacktestRun } from "./components/RunQueueBuilder";
 import RunQueueResults, { RunQueueResult } from "./components/RunQueueResults";
 import AIControlCenter from "./components/AIControlCenter";
+import CryptoSelloffDetectionPage from "./components/CryptoSelloffDetectionPage";
+import StockDaytradeBacktestPage from "./components/StockDaytradeBacktestPage";
 import { BacktestResult, runBacktest } from "./lib/backtest";
+import { runPerpetualBacktest } from "./lib/perpetualBacktest";
+import { runCryptoAutotraderBacktest } from "./lib/cryptoAutotraderBacktest";
+import { runCryptoTrendConfidenceBacktest } from "./lib/cryptoTrendConfidenceBacktest";
+import { runCryptoShortSelloffBacktest } from "./lib/cryptoShortSelloffBacktest";
 import { Bar, EarningsEvent } from "./lib/signals";
 import { analyzeMarketCondition } from "./lib/marketConditions";
 
@@ -42,12 +48,18 @@ type AlpacaPosition = {
 
 type AssetClass = "stocks_etf" | "crypto";
 
-type AppPage = "stocks_backtest" | "crypto_backtest";
+type AppPage =
+  | "stocks_backtest"
+  | "stocks_daytrade_orb"
+  | "crypto_backtest"
+  | "crypto_selloff_detection";
 type MarketBarsPayload = { bars: Bar[]; earningsEvents: EarningsEvent[] };
 
 const APP_PAGES: { id: AppPage; label: string }[] = [
   { id: "stocks_backtest", label: "Stocks/ETF Backtest" },
+  { id: "stocks_daytrade_orb", label: "Tech Earnings ORB" },
   { id: "crypto_backtest", label: "Crypto Backtest" },
+  { id: "crypto_selloff_detection", label: "Crypto Selloff Detection" },
 ];
 
 export default function App() {
@@ -89,7 +101,7 @@ export default function App() {
     symbol: string,
     options: {
       persist: boolean;
-      timeframe?: "1Day" | "1Hour" | "15Min";
+      timeframe?: "1Day" | "1Hour" | "15Min" | "5Min";
       startDate?: string;
       endDate?: string;
       range?: string;
@@ -99,7 +111,7 @@ export default function App() {
     const timeframe = options.timeframe ?? "1Day";
     const range = options.range ?? "2y";
     const intradayWindowKey =
-      timeframe === "15Min"
+      timeframe === "15Min" || timeframe === "5Min"
         ? `${options.startDate ?? "none"}::${options.endDate ?? "none"}`
         : "all";
     const cacheKey = `${normalizedSymbol}::${timeframe}::${range}::${intradayWindowKey}`;
@@ -119,9 +131,9 @@ export default function App() {
     try {
       const params = new URLSearchParams({ symbol: normalizedSymbol, range });
       if (timeframe !== "1Day") params.set("timeframe", timeframe);
-      if (timeframe === "15Min") {
+      if (timeframe === "15Min" || timeframe === "5Min") {
         if (!options.startDate || !options.endDate) {
-          throw new Error("15Min backtests require start and end dates.");
+          throw new Error(`${timeframe} backtests require start and end dates.`);
         }
         params.set("startDate", options.startDate);
         params.set("endDate", options.endDate);
@@ -301,17 +313,173 @@ export default function App() {
           }
         }
 
-        const computed = computeResultForForm(form, assetBars, benchmarkBars, benchmarkSymbol);
-        const marketRecommendation = analyzeMarketCondition(assetBars);
-        results.push({
-          run,
-          form,
-          result: computed,
-          bars: assetBars,
-          earningsEvents: assetEarningsEvents,
-          marketRecommendation,
-          error: null,
-        });
+        if (
+          run.presetKey === "perpetual" ||
+          run.presetKey === "crypto_perpetual_selloff_protection"
+        ) {
+          const preset = STRATEGY_PRESETS.find((p) => p.key === run.presetKey)!;
+          const endDate = addDaysIso(run.startDate, run.durationDays);
+          const perpetualResult = runPerpetualBacktest({
+            symbol: normalizeSymbol(form.symbol),
+            bars: assetBars,
+            startDate: run.startDate,
+            endDate,
+            totalAmount: run.totalAmount,
+            cadenceDays: run.cadenceDays,
+            buyThreshold: preset.buyThreshold ?? preset.config.aggressiveness,
+            sellThreshold: preset.sellThreshold ?? (1 - (preset.buyThreshold ?? preset.config.aggressiveness)),
+            signals: preset.config.signals,
+            selloffProtection: preset.selloffProtection
+              ? {
+                  signals: preset.selloffProtection.selloffSignals,
+                  selloffStartThreshold: preset.selloffProtection.selloffStartThreshold,
+                  selloffEndThreshold: preset.selloffProtection.selloffEndThreshold,
+                }
+              : undefined,
+          });
+          if (!perpetualResult) throw new Error("No trades generated. Try a longer duration or different dates.");
+          results.push({
+            run,
+            form,
+            result: null,
+            perpetualResult,
+            bars: assetBars,
+            earningsEvents: assetEarningsEvents,
+            error: null,
+          });
+        } else if (run.presetKey === "crypto_autotrader") {
+          const preset = STRATEGY_PRESETS.find((p) => p.key === "crypto_autotrader")!;
+          const endDate = addDaysIso(run.startDate, run.durationDays);
+          const autotraderCfg = preset.autotrader;
+          if (!autotraderCfg) {
+            throw new Error("Crypto autotrader preset is missing configuration.");
+          }
+
+          const autotraderResult = runCryptoAutotraderBacktest({
+            symbol: normalizeSymbol(form.symbol),
+            bars: assetBars,
+            timeframe: form.timeframe === "1Day" ? "1Day" : "1Hour",
+            startDate: run.startDate,
+            endDate,
+            totalAmount: run.totalAmount,
+            signals: preset.config.signals,
+            selloffSignals: autotraderCfg.selloffSignals,
+            selloffStartThreshold: autotraderCfg.selloffStartThreshold,
+            selloffEndThreshold: autotraderCfg.selloffEndThreshold,
+            atrPeriod: autotraderCfg.atrPeriod,
+            shortStopAtrMult: autotraderCfg.shortStopAtrMult,
+            shortTakeProfitRR: autotraderCfg.shortTakeProfitRR,
+            shortMaxHoldBars: autotraderCfg.shortMaxHoldBars,
+            shortBreakEvenActivationRR: autotraderCfg.shortBreakEvenActivationRR,
+            shortBreakEvenLockRR: autotraderCfg.shortBreakEvenLockRR,
+            shortTrailActivationRR: autotraderCfg.shortTrailActivationRR,
+            shortTrailAtrMult: autotraderCfg.shortTrailAtrMult,
+            longEntrySlopeThreshold: autotraderCfg.longEntrySlopeThreshold,
+            longExitSlopeThreshold: autotraderCfg.longExitSlopeThreshold,
+            longExitStyle: autotraderCfg.longExitStyle,
+            longStopAtrMult: autotraderCfg.longStopAtrMult,
+            longTakeProfitRR: autotraderCfg.longTakeProfitRR,
+            longTrailAtrMult: autotraderCfg.longTrailAtrMult,
+            longBreakEvenActivationRR: autotraderCfg.longBreakEvenActivationRR,
+            longBreakEvenLockRR: autotraderCfg.longBreakEvenLockRR,
+            longTrailActivationRR: autotraderCfg.longTrailActivationRR,
+            longTrailingStopPct: autotraderCfg.longTrailingStopPct,
+            trailingActivationPct: autotraderCfg.trailingActivationPct,
+          });
+          if (!autotraderResult) {
+            throw new Error(
+              "No autotrader trades were generated. Try a longer duration, larger amount, or an earlier start date."
+            );
+          }
+          results.push({
+            run,
+            form,
+            result: null,
+            autotraderResult,
+            bars: assetBars,
+            earningsEvents: assetEarningsEvents,
+            error: null,
+          });
+        } else if (run.presetKey === "crypto_short_selloff") {
+          const preset = STRATEGY_PRESETS.find((p) => p.key === "crypto_short_selloff")!;
+          const endDate = addDaysIso(run.startDate, run.durationDays);
+          const autotraderCfg = preset.autotrader;
+          if (!autotraderCfg) {
+            throw new Error("Crypto short selloff preset is missing configuration.");
+          }
+
+          const intradayExecution = await fetchBars(symbol, {
+            persist: false,
+            timeframe: "5Min",
+            range: neededRange,
+            startDate: run.startDate,
+            endDate,
+          });
+          const executionBars = intradayExecution.bars;
+          if (executionBars.length === 0) {
+            throw new Error("No 5Min bars loaded for short selloff execution window.");
+          }
+
+          const shortSelloffResult = runCryptoShortSelloffBacktest({
+            symbol: normalizeSymbol(form.symbol),
+            hourlyBars: assetBars,
+            executionBars,
+            startDate: run.startDate,
+            endDate,
+            totalAmount: run.totalAmount,
+            signals: preset.config.signals,
+            selloffSignals: autotraderCfg.selloffSignals,
+            selloffStartThreshold: autotraderCfg.selloffStartThreshold,
+            selloffEndThreshold: autotraderCfg.selloffEndThreshold,
+          });
+          if (!shortSelloffResult) {
+            throw new Error(
+              "No short selloff trades were generated. Try a longer duration or an earlier start date."
+            );
+          }
+
+          results.push({
+            run,
+            form,
+            result: null,
+            autotraderResult: shortSelloffResult,
+            bars: executionBars,
+            earningsEvents: intradayExecution.earningsEvents,
+            error: null,
+          });
+        } else if (run.presetKey === "crypto_trend_confidence") {
+          const endDate = addDaysIso(run.startDate, run.durationDays);
+          const trendConfidenceResult = runCryptoTrendConfidenceBacktest({
+            symbol: normalizeSymbol(form.symbol),
+            bars: assetBars,
+            startDate: run.startDate,
+            endDate,
+          });
+          if (!trendConfidenceResult) {
+            throw new Error(
+              "No trend regions could be classified. Try a longer duration or an earlier start date."
+            );
+          }
+          results.push({
+            run,
+            form,
+            result: null,
+            trendConfidenceResult,
+            bars: assetBars,
+            earningsEvents: assetEarningsEvents,
+            error: null,
+          });
+        } else {
+          const computed = computeResultForForm(form, assetBars, benchmarkBars, benchmarkSymbol);
+          results.push({
+            run,
+            form,
+            result: computed,
+            bars: assetBars,
+            earningsEvents: assetEarningsEvents,
+            error: null,
+          });
+        }
       } catch (e) {
         results.push({
           run,
@@ -397,6 +565,20 @@ export default function App() {
             defaultSymbol="BTC"
             symbolMode="crypto"
             onRunQueue={handleRunQueue}
+          />
+        )}
+
+        {activePage === "crypto_selloff_detection" && (
+          <CryptoSelloffDetectionPage
+            key="crypto_selloff_detection"
+            apiPrefix={API_PREFIX}
+          />
+        )}
+
+        {activePage === "stocks_daytrade_orb" && (
+          <StockDaytradeBacktestPage
+            key="stocks_daytrade_orb"
+            apiPrefix={API_PREFIX}
           />
         )}
       </main>
@@ -828,7 +1010,7 @@ function signedPct(value: number): string {
 function resolveIntradayFetchWindow(
   form: StrategyForm
 ): { startDate: string; endDate: string } | null {
-  if (form.timeframe !== "15Min") {
+  if (form.timeframe !== "15Min" && form.timeframe !== "5Min") {
     return null;
   }
   const windows = resolveBacktestWindows(form);

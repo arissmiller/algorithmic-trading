@@ -41,7 +41,9 @@ export async function handleBarsRoute(
     const symbol = url.searchParams.get("symbol") ?? symbolFromPath;
     const timeframeParam = url.searchParams.get("timeframe");
     const timeframe =
-      timeframeParam === "1Hour" || timeframeParam === "15Min" ? timeframeParam : "1Day";
+      timeframeParam === "1Hour" || timeframeParam === "15Min" || timeframeParam === "5Min"
+        ? timeframeParam
+        : "1Day";
     const startDate = url.searchParams.get("startDate");
     const endDate = url.searchParams.get("endDate");
     const payload = await fetchMarketBars({

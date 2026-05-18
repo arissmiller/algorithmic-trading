@@ -38,6 +38,14 @@ function addDaysIso(isoDate: string, days: number): string {
   return new Date(Date.UTC(y, m - 1, d + days)).toISOString().split("T")[0];
 }
 
+function durationLabel(days: number): string {
+  const match = DURATION_OPTIONS.find((o) => o.durationDays === days);
+  if (match) return match.label;
+  if (days < 14) return `${days} days`;
+  if (days < 60) return `${days} days (~${Math.round(days / 7)}w)`;
+  return `${days} days (~${(days / 30.44).toFixed(1)}mo)`;
+}
+
 function defaultDraft(defaultSymbol = "AAPL"): Omit<BacktestRun, "id"> {
   const start = new Date();
   start.setFullYear(start.getFullYear() - 1);
@@ -53,6 +61,17 @@ function defaultDraft(defaultSymbol = "AAPL"): Omit<BacktestRun, "id"> {
   };
 }
 
+const CRYPTO_ONLY_PRESETS = new Set<StrategyPresetKey>([
+  "crypto_perpetual_selloff_protection",
+  "crypto_autotrader",
+  "crypto_short_selloff",
+  "crypto_trend_confidence",
+]);
+const EVENT_DRIVEN_PRESETS = new Set<StrategyPresetKey>([
+  "crypto_autotrader",
+  "crypto_short_selloff",
+]);
+
 export default function RunQueueBuilder({
   runs,
   onRunsChange,
@@ -64,6 +83,9 @@ export default function RunQueueBuilder({
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState<Omit<BacktestRun, "id">>(() =>
     defaultDraft(defaultSymbol)
+  );
+  const visiblePresets = STRATEGY_PRESETS.filter(
+    (preset) => symbolMode === "crypto" || !CRYPTO_ONLY_PRESETS.has(preset.key)
   );
 
   const patchDraft = <K extends keyof Omit<BacktestRun, "id">>(
@@ -81,7 +103,12 @@ export default function RunQueueBuilder({
 
     onRunsChange([
       ...runs,
-      { ...draft, symbol: normalizedSymbol, id: crypto.randomUUID() },
+      {
+        ...draft,
+        cadenceDays: EVENT_DRIVEN_PRESETS.has(draft.presetKey) ? 1 : draft.cadenceDays,
+        symbol: normalizedSymbol,
+        id: crypto.randomUUID(),
+      },
     ]);
     setAdding(false);
     setDraft(defaultDraft(defaultSymbol));
@@ -92,7 +119,8 @@ export default function RunQueueBuilder({
   }
 
   const selectedPreset =
-    STRATEGY_PRESETS.find((p) => p.key === draft.presetKey) ?? STRATEGY_PRESETS[0];
+    visiblePresets.find((p) => p.key === draft.presetKey) ?? visiblePresets[0];
+  const draftUsesCadence = !EVENT_DRIVEN_PRESETS.has(draft.presetKey);
   const cryptoSymbolError =
     symbolMode === "crypto" ? validateCryptoSymbol(draft.symbol) : null;
   const canAddRun =
@@ -113,6 +141,9 @@ export default function RunQueueBuilder({
       {runs.map((run, index) => {
         const preset = STRATEGY_PRESETS.find((p) => p.key === run.presetKey);
         const endDate = addDaysIso(run.startDate, run.durationDays);
+        const cadenceLabel = EVENT_DRIVEN_PRESETS.has(run.presetKey)
+          ? "event-driven"
+          : `every ${run.cadenceDays}d`;
         return (
           <div key={run.id} className="rounded border border-border bg-surface-2 px-3 py-2.5">
             <div className="flex items-center justify-between mb-1">
@@ -131,7 +162,7 @@ export default function RunQueueBuilder({
             <p className="text-sm font-semibold text-text-primary">{run.symbol}</p>
             <p className="text-[10px] text-text-secondary">{preset?.label ?? run.presetKey}</p>
             <p className="text-[10px] text-text-secondary tabular-nums mt-0.5">
-              {run.startDate} → {endDate} · {DURATION_OPTIONS.find((o) => o.durationDays === run.durationDays)?.label ?? `${run.durationDays}d`} · every {run.cadenceDays}d · ${run.totalAmount.toLocaleString()}
+              {run.startDate} → {endDate} · {durationLabel(run.durationDays)} · {cadenceLabel} · ${run.totalAmount.toLocaleString()}
             </p>
           </div>
         );
@@ -146,9 +177,16 @@ export default function RunQueueBuilder({
             <select
               className={input}
               value={draft.presetKey}
-              onChange={(e) => patchDraft("presetKey", e.target.value as StrategyPresetKey)}
+              onChange={(e) => {
+                const nextPreset = e.target.value as StrategyPresetKey;
+                setDraft((d) => ({
+                  ...d,
+                  presetKey: nextPreset,
+                  cadenceDays: EVENT_DRIVEN_PRESETS.has(nextPreset) ? 1 : d.cadenceDays,
+                }));
+              }}
             >
-              {STRATEGY_PRESETS.map((p) => (
+              {visiblePresets.map((p) => (
                 <option key={p.key} value={p.key}>
                   {p.label}
                 </option>
@@ -182,38 +220,67 @@ export default function RunQueueBuilder({
             ) : null}
           </div>
 
-          <div className="grid grid-cols-2 gap-2">
-            <div>
-              <label className="mb-1 block text-[10px] text-text-secondary">Start Date</label>
-              <input
-                type="date"
-                className={input}
-                value={draft.startDate}
-                onChange={(e) => patchDraft("startDate", e.target.value)}
-              />
+          <div>
+            <label className="mb-1 block text-[10px] text-text-secondary">Start Date</label>
+            <input
+              type="date"
+              className={input}
+              value={draft.startDate}
+              onChange={(e) => patchDraft("startDate", e.target.value)}
+            />
+          </div>
+
+          <div>
+            <label className="mb-1 block text-[10px] text-text-secondary">Duration</label>
+            <div className="flex flex-wrap gap-1 mb-1.5">
+              {DURATION_OPTIONS.map((o) => (
+                <button
+                  key={o.durationDays}
+                  type="button"
+                  onClick={() => setDraft((d) => ({ ...d, durationDays: o.durationDays, cadenceDays: o.cadenceDays }))}
+                  className={`rounded border px-2 py-0.5 text-[10px] transition-colors ${
+                    draft.durationDays === o.durationDays
+                      ? "border-accent/60 bg-accent/10 text-accent"
+                      : "border-border bg-surface-3 text-text-secondary hover:text-text-primary"
+                  }`}
+                >
+                  {o.label}
+                </button>
+              ))}
             </div>
+            <input
+              type="number"
+              min={1}
+              className={input}
+              value={draft.durationDays}
+              onChange={(e) => patchDraft("durationDays", Math.max(1, +e.target.value))}
+              placeholder="Custom days"
+            />
+            <p className="mt-0.5 text-[10px] text-text-secondary">
+              {durationLabel(draft.durationDays)}
+            </p>
+          </div>
+
+          {draftUsesCadence ? (
             <div>
-              <label className="mb-1 block text-[10px] text-text-secondary">Duration</label>
-              <select
+              <label className="mb-1 block text-[10px] text-text-secondary">Cadence (days / tranche)</label>
+              <input
+                type="number"
+                min={1}
+                max={365}
                 className={input}
-                value={draft.durationDays}
-                onChange={(e) => {
-                  const opt = DURATION_OPTIONS.find((o) => o.durationDays === +e.target.value);
-                  if (!opt) return;
-                  setDraft((d) => ({ ...d, durationDays: opt.durationDays, cadenceDays: opt.cadenceDays }));
-                }}
-              >
-                {DURATION_OPTIONS.map((o) => (
-                  <option key={o.durationDays} value={o.durationDays}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
+                value={draft.cadenceDays}
+                onChange={(e) => patchDraft("cadenceDays", Math.max(1, +e.target.value))}
+              />
               <p className="mt-0.5 text-[10px] text-text-secondary">
-                every {draft.cadenceDays} days
+                ~{Math.ceil(draft.durationDays / Math.max(1, draft.cadenceDays))} tranches
               </p>
             </div>
-          </div>
+          ) : (
+            <div className="rounded border border-border bg-surface-2 px-2.5 py-2 text-[10px] text-text-secondary">
+              This preset is event-driven. Cadence is not used.
+            </div>
+          )}
 
           <div>
             <label className="mb-1 block text-[10px] text-text-secondary">Amount ($)</label>

@@ -23,6 +23,10 @@ const BAR_CACHE_TTL_15_MIN_MS = parsePositiveIntEnv(
   "BAR_CACHE_TTL_15_MIN_MS",
   24 * 60 * 60 * 1000
 );
+const BAR_CACHE_TTL_5_MIN_MS = parsePositiveIntEnv(
+  "BAR_CACHE_TTL_5_MIN_MS",
+  12 * 60 * 60 * 1000
+);
 
 let pool: Pool | null = null;
 let setupPromise: Promise<void> | null = null;
@@ -32,7 +36,7 @@ let setupFailureReason = "";
 export async function getCachedBars(input: {
   symbol: string;
   range: string;
-  timeframe: "1Day" | "1Hour" | "15Min";
+  timeframe: "1Day" | "1Hour" | "15Min" | "5Min";
 }): Promise<{ symbol: string; bars: CachedApiBar[] } | null> {
   const cachePool = await getReadyPool();
   if (!cachePool) {
@@ -77,7 +81,7 @@ export async function getCachedBars(input: {
 export async function upsertCachedBars(input: {
   symbol: string;
   range: string;
-  timeframe: "1Day" | "1Hour" | "15Min";
+  timeframe: "1Day" | "1Hour" | "15Min" | "5Min";
   bars: CachedApiBar[];
 }): Promise<void> {
   const cachePool = await getReadyPool();
@@ -89,6 +93,8 @@ export async function upsertCachedBars(input: {
     const ttlMs =
       input.timeframe === "15Min"
         ? BAR_CACHE_TTL_15_MIN_MS
+        : input.timeframe === "5Min"
+        ? BAR_CACHE_TTL_5_MIN_MS
         : input.timeframe === "1Hour"
         ? BAR_CACHE_TTL_1_HOUR_MS
         : BAR_CACHE_TTL_1_DAY_MS;

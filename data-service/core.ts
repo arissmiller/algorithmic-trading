@@ -1,5 +1,9 @@
 import { getCachedBars, upsertCachedBars } from "./barCache";
 import {
+  getStoredCryptoBacktestBars,
+  upsertStoredCryptoBacktestBars,
+} from "./cryptoBacktestStore.ts";
+import {
   getSecEarningsEventsForWindow,
 } from "./secEarningsStore.ts";
 import type { EarningsEvent } from "./earningsTypes.ts";
@@ -52,7 +56,7 @@ export class ApiHttpError extends Error {
   }
 }
 
-export type MarketTimeframe = "1Day" | "1Hour" | "15Min";
+export type MarketTimeframe = "1Day" | "1Hour" | "15Min" | "5Min";
 
 export async function fetchMarketBars(input: {
   symbol: string;
@@ -60,6 +64,7 @@ export async function fetchMarketBars(input: {
   timeframe?: MarketTimeframe;
   startDate?: string | null;
   endDate?: string | null;
+  preferStoredHourlyCryptoBars?: boolean;
 }): Promise<{ symbol: string; bars: ApiBar[]; earningsEvents: EarningsEvent[] }> {
   const symbol = normalizeSymbol(input.symbol);
   if (!symbol) {
@@ -69,11 +74,35 @@ export async function fetchMarketBars(input: {
   const timeframe = input.timeframe ?? "1Day";
   const cacheSymbol = isCryptoSymbol(symbol) ? normalizeCryptoSymbol(symbol) : symbol;
 
-  if (timeframe === "15Min") {
-    const dayWindow = normalizeDayWindow(input.startDate, input.endDate);
+  // Prefer locally stored hourly crypto bars for backtests to avoid Alpaca rate-limit churn.
+  const preferStoredHourlyCryptoBars = input.preferStoredHourlyCryptoBars !== false;
+  if (preferStoredHourlyCryptoBars && timeframe === "1Hour" && isCryptoSymbol(symbol)) {
+    const stored = await getStoredCryptoBacktestBars({
+      symbol: cacheSymbol,
+      range: input.range ?? "2y",
+      timeframe,
+    });
+    if (stored) {
+      return {
+        symbol: stored.symbol,
+        bars: stored.bars.map((bar) => ({
+          t: bar.t,
+          o: bar.o,
+          h: bar.h,
+          l: bar.l,
+          c: bar.c,
+          v: bar.v,
+        })),
+        earningsEvents: [],
+      };
+    }
+  }
+
+  if (timeframe === "15Min" || timeframe === "5Min") {
+    const dayWindow = normalizeDayWindow(input.startDate, input.endDate, timeframe);
     const dayKeys = enumerateDayKeys(dayWindow.startDate, dayWindow.endDate);
     if (dayKeys.length === 0) {
-      throw new ApiHttpError(400, "No days selected for 15Min request");
+      throw new ApiHttpError(400, `No days selected for ${timeframe} request`);
     }
 
     if (!hasAlpacaCredentials()) {
@@ -162,6 +191,21 @@ export async function fetchMarketBars(input: {
     timeframe,
     bars: fresh.bars,
   });
+
+  if (timeframe === "1Hour" && isCryptoSymbol(symbol)) {
+    await upsertStoredCryptoBacktestBars({
+      symbol: fresh.symbol,
+      source: "alpaca",
+      bars: fresh.bars.map((bar) => ({
+        t: bar.t,
+        o: bar.o,
+        h: bar.h,
+        l: bar.l,
+        c: bar.c,
+        v: bar.v,
+      })),
+    });
+  }
 
   const earningsEvents = await loadEarningsEventsForBars(symbol, fresh.bars);
   return { ...fresh, earningsEvents };
@@ -710,10 +754,10 @@ function getTimeWindow(
   timeframe: MarketTimeframe = "1Day"
 ): { start: string; end: string } {
   const now = new Date();
-  // 15-minute bars are fetched with explicit day windows in fetchMarketBars().
+  // Intraday bars are fetched with explicit day windows in fetchMarketBars().
   // Keep a small fallback here for non-windowed requests.
   const start =
-    timeframe === "15Min"
+    timeframe === "15Min" || timeframe === "5Min"
       ? new Date(now.getTime() - 45 * DAY_MS)
       : getCutoffDate(range) ?? new Date(Date.UTC(2000, 0, 1));
   return {
@@ -753,7 +797,8 @@ function getCutoffDate(range: string): Date | null {
 
 function normalizeDayWindow(
   startDateRaw: string | null | undefined,
-  endDateRaw: string | null | undefined
+  endDateRaw: string | null | undefined,
+  timeframe: "15Min" | "5Min"
 ): { startDate: string; endDate: string } {
   const startDate = normalizeIsoDay(startDateRaw);
   const endDate = normalizeIsoDay(endDateRaw);
@@ -761,7 +806,7 @@ function normalizeDayWindow(
   if (!startDate || !endDate) {
     throw new ApiHttpError(
       400,
-      "15Min requests require startDate and endDate query params in YYYY-MM-DD format"
+      `${timeframe} requests require startDate and endDate query params in YYYY-MM-DD format`
     );
   }
 
@@ -773,7 +818,7 @@ function normalizeDayWindow(
   if (dayCount > 120) {
     throw new ApiHttpError(
       400,
-      "15Min requests currently support up to 120 days per call"
+      `${timeframe} requests currently support up to 120 days per call`
     );
   }
 

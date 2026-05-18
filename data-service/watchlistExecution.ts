@@ -556,6 +556,10 @@ function normalizeSignalType(raw: unknown): SignalType | null {
       const period = parsePositiveInt((raw as { period?: unknown }).period, 10);
       return { type, period };
     }
+    case "selloff_pressure": {
+      const period = parsePositiveInt((raw as { period?: unknown }).period, 8);
+      return { type, period };
+    }
     case "bollinger_band": {
       const period = parsePositiveInt((raw as { period?: unknown }).period, 20);
       const stdDev = parsePositiveNumber((raw as { std_dev?: unknown }).std_dev, 2);

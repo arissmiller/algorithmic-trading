@@ -6,7 +6,11 @@ export type BotTuningProfileKey =
   | "long_term_selloff"
   | "short_term_selloff"
   | "crash_buy_in"
-  | "crash_selloff_detected";
+  | "crash_selloff_detected"
+  | "hourly_breakout"
+  | "hourly_trend_continuation"
+  | "hourly_squeeze_breakout"
+  | "hourly_impulse_buy";
 
 export interface BotTuningProfile {
   key: BotTuningProfileKey;
@@ -55,6 +59,11 @@ export const BOT_TUNING = {
   },
   crashDetection: {
     defaultThreshold: 0.75,
+  },
+  risk: {
+    // Backend-managed defaults for autotrader risk controls.
+    stopLossPct: 0.06,
+    trailingStopPct: 0.02,
   },
 } as const;
 
@@ -157,14 +166,73 @@ export const BOT_TUNING_PROFILES: Record<BotTuningProfileKey, BotTuningProfile> 
     ],
     crashDetection: {
       enabled: true,
-      threshold: 0.74,
+      threshold: 0.70,
       signals: [
-        { signal: { type: "volume", period: 20 }, weight: 0.35 },
-        { signal: { type: "rsi", period: 7 }, weight: 0.2 },
-        { signal: { type: "bollinger_band", period: 20, std_dev: 2.5 }, weight: 0.25 },
-        { signal: { type: "momentum", period: 5 }, weight: 0.2 },
+        { signal: { type: "selloff_pressure", period: 8 }, weight: 0.55 },
+        { signal: { type: "volume", period: 20 }, weight: 0.22 },
+        { signal: { type: "rsi", period: 7 }, weight: 0.10 },
+        { signal: { type: "bollinger_band", period: 20, std_dev: 2.5 }, weight: 0.13 },
       ],
     },
   },
+  hourly_breakout: {
+    key: "hourly_breakout",
+    label: "Hourly Breakout (N-Bar High)",
+    summary: "Buys when price breaks above the 20-bar high with volume confirmation — rides supply zone absorptions.",
+    timeframe: "1Hour",
+    objective: "scale_in",
+    durationDays: 14,
+    buyThreshold: 0.72,
+    sellThreshold: 0.30,
+    signals: [
+      { signal: { type: "breakout_momentum", period: 20 }, weight: 0.50 },
+      { signal: { type: "volume", period: 20 }, weight: 0.30 },
+      { signal: { type: "rsi", period: 14 }, weight: 0.20 },
+    ],
+  },
+  hourly_trend_continuation: {
+    key: "hourly_trend_continuation",
+    label: "Hourly Trend Continuation (Bar Streak)",
+    summary: "Buys after 3–5 consecutive bullish hourly bars each closing near their high — momentum continuation.",
+    timeframe: "1Hour",
+    objective: "scale_in",
+    durationDays: 7,
+    buyThreshold: 0.68,
+    sellThreshold: 0.35,
+    signals: [
+      { signal: { type: "bar_streak", period: 5 }, weight: 0.45 },
+      { signal: { type: "volume", period: 20 }, weight: 0.30 },
+      { signal: { type: "momentum_rsi", period: 14 }, weight: 0.25 },
+    ],
+  },
+  hourly_squeeze_breakout: {
+    key: "hourly_squeeze_breakout",
+    label: "Hourly Squeeze Breakout (BB Expansion)",
+    summary: "Detects Bollinger Band compression then buys the first candle that breaks above the upper band.",
+    timeframe: "1Hour",
+    objective: "scale_in",
+    durationDays: 10,
+    buyThreshold: 0.70,
+    sellThreshold: 0.28,
+    signals: [
+      { signal: { type: "squeeze_breakout", period: 20 }, weight: 0.55 },
+      { signal: { type: "volume", period: 20 }, weight: 0.25 },
+      { signal: { type: "bar_streak", period: 5 }, weight: 0.20 },
+    ],
+  },
+  hourly_impulse_buy: {
+    key: "hourly_impulse_buy",
+    label: "Hourly Impulse Buy (Large Candle + Volume)",
+    summary: "Buys on large bullish candle bodies paired with a volume surge — demand impulse entries.",
+    timeframe: "1Hour",
+    objective: "scale_in",
+    durationDays: 7,
+    buyThreshold: 0.73,
+    sellThreshold: 0.32,
+    signals: [
+      { signal: { type: "bullish_impulse", period: 20 }, weight: 0.50 },
+      { signal: { type: "volume", period: 20 }, weight: 0.25 },
+      { signal: { type: "rsi", period: 14 }, weight: 0.25 },
+    ],
+  },
 };
-
