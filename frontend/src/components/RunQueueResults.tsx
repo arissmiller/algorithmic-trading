@@ -323,6 +323,30 @@ function toTrendRegionMarkers(regions: TrendConfidenceRegion[]): BacktestChartEv
   });
 }
 
+type SymbolRunGroup = {
+  symbol: string;
+  runs: RunQueueResult[];
+};
+
+function groupResultsBySymbol(results: RunQueueResult[]): SymbolRunGroup[] {
+  const groupsBySymbol = new Map<string, SymbolRunGroup>();
+  const orderedGroups: SymbolRunGroup[] = [];
+
+  for (const result of results) {
+    const symbol = result.run.symbol.trim().toUpperCase();
+    const existing = groupsBySymbol.get(symbol);
+    if (existing) {
+      existing.runs.push(result);
+      continue;
+    }
+    const group: SymbolRunGroup = { symbol, runs: [result] };
+    groupsBySymbol.set(symbol, group);
+    orderedGroups.push(group);
+  }
+
+  return orderedGroups;
+}
+
 export default function RunQueueResults({ results }: { results: RunQueueResult[] }) {
   if (results.length === 0) {
     return (
@@ -332,103 +356,136 @@ export default function RunQueueResults({ results }: { results: RunQueueResult[]
     );
   }
 
-  const successful = results.filter((r) => r.result);
+  const symbolGroups = groupResultsBySymbol(results);
+  const hasMultipleSymbols = symbolGroups.length > 1;
+  const runIndexById = new Map(results.map((runResult, idx) => [runResult.run.id, idx]));
 
-  const inVsLumpVals = successful
-    .map((r) => r.result!.scaleIn?.comparison.smartVsLumpPct)
-    .filter((v): v is number => v !== undefined);
-  const inVsRandVals = successful
-    .map((r) => r.result!.scaleIn?.comparison.smartVsRandomPct)
-    .filter((v): v is number => v !== undefined);
-  const outVsLumpVals = successful
-    .map((r) => r.result!.scaleOut?.comparison.smartVsLumpPct)
-    .filter((v): v is number => v !== undefined);
-  const outVsRandVals = successful
-    .map((r) => r.result!.scaleOut?.comparison.smartVsRandomPct)
-    .filter((v): v is number => v !== undefined);
-
-  const avgInVsLump = avg(inVsLumpVals);
-  const avgInVsRand = avg(inVsRandVals);
-  const avgOutVsLump = avg(outVsLumpVals);
-  const avgOutVsRand = avg(outVsRandVals);
-
-  // Combined chart for non-perpetual runs
-  const chartBars = successful.find((r) => r.bars.length > 0)?.bars ?? [];
-  const chartEarningsEvents = successful.find((r) => r.bars.length > 0)?.earningsEvents ?? [];
-  const allBuyTrades = successful.flatMap((r) => r.result!.scaleIn?.trades ?? []);
-  const allSellTrades = successful.flatMap((r) => r.result!.scaleOut?.trades ?? []);
+  const renderRunSection = (runResult: RunQueueResult, fallbackIndex: number) => {
+    const index = runIndexById.get(runResult.run.id) ?? fallbackIndex;
+    if (
+      runResult.run.presetKey === "perpetual" ||
+      runResult.run.presetKey === "crypto_perpetual_selloff_protection"
+    ) {
+      return <PerpetualRunSection key={runResult.run.id} r={runResult} index={index} />;
+    }
+    if (
+      runResult.run.presetKey === "crypto_autotrader" ||
+      runResult.run.presetKey === "crypto_short_selloff"
+    ) {
+      return <CryptoAutotraderRunSection key={runResult.run.id} r={runResult} index={index} />;
+    }
+    if (runResult.run.presetKey === "crypto_trend_confidence") {
+      return <CryptoTrendConfidenceRunSection key={runResult.run.id} r={runResult} index={index} />;
+    }
+    return <RunSection key={runResult.run.id} r={runResult} index={index} />;
+  };
 
   return (
     <div className="h-full overflow-y-auto">
-      {/* Cumulative stats — only shown when there are non-perpetual runs */}
-      {successful.length > 0 && (
-        <section className="border-b border-border bg-surface-1 px-4 py-3">
-          <p className="text-[11px] uppercase tracking-widest text-text-secondary font-semibold mb-2">
-            Avg Strategy Edge
-          </p>
-          <div className="grid grid-cols-4 gap-3">
-            <ComparisonChip
-              label="Buy vs Lump Sum"
-              value={avgInVsLump}
-              winRate={winRate(inVsLumpVals)}
-              n={inVsLumpVals.length}
-            />
-            <ComparisonChip
-              label="Buy vs Random"
-              value={avgInVsRand}
-              winRate={winRate(inVsRandVals)}
-              n={inVsRandVals.length}
-            />
-            <ComparisonChip
-              label="Sell vs Lump Sum"
-              value={avgOutVsLump}
-              winRate={winRate(outVsLumpVals)}
-              n={outVsLumpVals.length}
-            />
-            <ComparisonChip
-              label="Sell vs Random"
-              value={avgOutVsRand}
-              winRate={winRate(outVsRandVals)}
-              n={outVsRandVals.length}
-            />
-          </div>
-          <p className="mt-2 text-[10px] text-text-secondary">
-            {successful.length}/{results.length} runs succeeded
-          </p>
-        </section>
-      )}
+      {symbolGroups.map((group, groupIndex) => {
+        const successful = group.runs.filter((runResult) => runResult.result);
 
-      {/* Combined chart for non-perpetual runs */}
-      {chartBars.length > 0 && (allBuyTrades.length > 0 || allSellTrades.length > 0) && (
-        <section className="border-b border-border">
-          <div className="px-4 py-2 text-[11px] uppercase tracking-widest text-text-secondary font-semibold">
-            All Trades
-          </div>
-          <div className="h-64">
-            <BacktestChart
-              bars={chartBars}
-              scaleInTrades={allBuyTrades}
-              scaleOutTrades={allSellTrades}
-              earningsEvents={chartEarningsEvents}
-              movingAverageDays={BACKTEST_EMA_DAYS}
-            />
-          </div>
-        </section>
-      )}
+        const inVsLumpVals = successful
+          .map((runResult) => runResult.result!.scaleIn?.comparison.smartVsLumpPct)
+          .filter((v): v is number => v !== undefined);
+        const inVsRandVals = successful
+          .map((runResult) => runResult.result!.scaleIn?.comparison.smartVsRandomPct)
+          .filter((v): v is number => v !== undefined);
+        const outVsLumpVals = successful
+          .map((runResult) => runResult.result!.scaleOut?.comparison.smartVsLumpPct)
+          .filter((v): v is number => v !== undefined);
+        const outVsRandVals = successful
+          .map((runResult) => runResult.result!.scaleOut?.comparison.smartVsRandomPct)
+          .filter((v): v is number => v !== undefined);
 
-      {/* Per-run sections */}
-      {results.map((r, i) =>
-        r.run.presetKey === "perpetual" ||
-        r.run.presetKey === "crypto_perpetual_selloff_protection" ? (
-          <PerpetualRunSection key={r.run.id} r={r} index={i} />
-        ) : r.run.presetKey === "crypto_autotrader" || r.run.presetKey === "crypto_short_selloff" ? (
-          <CryptoAutotraderRunSection key={r.run.id} r={r} index={i} />
-        ) : r.run.presetKey === "crypto_trend_confidence" ? (
-          <CryptoTrendConfidenceRunSection key={r.run.id} r={r} index={i} />
-        ) : (
-          <RunSection key={r.run.id} r={r} index={i} />
-        )
-      )}
+        const avgInVsLump = avg(inVsLumpVals);
+        const avgInVsRand = avg(inVsRandVals);
+        const avgOutVsLump = avg(outVsLumpVals);
+        const avgOutVsRand = avg(outVsRandVals);
+
+        const chartBars = successful.find((runResult) => runResult.bars.length > 0)?.bars ?? [];
+        const chartEarningsEvents =
+          successful.find((runResult) => runResult.bars.length > 0)?.earningsEvents ?? [];
+        const allBuyTrades = successful.flatMap((runResult) => runResult.result!.scaleIn?.trades ?? []);
+        const allSellTrades = successful.flatMap((runResult) => runResult.result!.scaleOut?.trades ?? []);
+
+        return (
+          <section
+            key={group.symbol}
+            className={groupIndex > 0 ? "border-t-2 border-border" : undefined}
+          >
+            {hasMultipleSymbols && (
+              <div className="border-b border-border bg-surface-1 px-4 py-2">
+                <p className="text-[11px] uppercase tracking-widest text-text-secondary font-semibold">
+                  Symbol: {group.symbol}
+                </p>
+                <p className="mt-0.5 text-[10px] text-text-secondary">
+                  {group.runs.length} run{group.runs.length !== 1 ? "s" : ""} queued
+                </p>
+              </div>
+            )}
+
+            {/* Cumulative stats — only shown when there are non-perpetual runs */}
+            {successful.length > 0 && (
+              <section className="border-b border-border bg-surface-1 px-4 py-3">
+                <p className="text-[11px] uppercase tracking-widest text-text-secondary font-semibold mb-2">
+                  Avg Strategy Edge
+                </p>
+                <div className="grid grid-cols-4 gap-3">
+                  <ComparisonChip
+                    label="Buy vs Lump Sum"
+                    value={avgInVsLump}
+                    winRate={winRate(inVsLumpVals)}
+                    n={inVsLumpVals.length}
+                  />
+                  <ComparisonChip
+                    label="Buy vs Random"
+                    value={avgInVsRand}
+                    winRate={winRate(inVsRandVals)}
+                    n={inVsRandVals.length}
+                  />
+                  <ComparisonChip
+                    label="Sell vs Lump Sum"
+                    value={avgOutVsLump}
+                    winRate={winRate(outVsLumpVals)}
+                    n={outVsLumpVals.length}
+                  />
+                  <ComparisonChip
+                    label="Sell vs Random"
+                    value={avgOutVsRand}
+                    winRate={winRate(outVsRandVals)}
+                    n={outVsRandVals.length}
+                  />
+                </div>
+                <p className="mt-2 text-[10px] text-text-secondary">
+                  {successful.length}/{group.runs.length} runs succeeded
+                </p>
+              </section>
+            )}
+
+            {/* Combined chart for non-perpetual runs */}
+            {chartBars.length > 0 && (allBuyTrades.length > 0 || allSellTrades.length > 0) && (
+              <section className="border-b border-border">
+                <div className="px-4 py-2 text-[11px] uppercase tracking-widest text-text-secondary font-semibold">
+                  All Trades
+                </div>
+                <div className="h-64">
+                  <BacktestChart
+                    bars={chartBars}
+                    scaleInTrades={allBuyTrades}
+                    scaleOutTrades={allSellTrades}
+                    earningsEvents={chartEarningsEvents}
+                    movingAverageDays={BACKTEST_EMA_DAYS}
+                  />
+                </div>
+              </section>
+            )}
+
+            {/* Per-run sections */}
+            {group.runs.map((runResult, runIndex) => renderRunSection(runResult, runIndex))}
+          </section>
+        );
+      })}
     </div>
   );
 }

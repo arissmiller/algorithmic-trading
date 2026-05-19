@@ -6,6 +6,7 @@ import RunQueueResults, { RunQueueResult } from "./components/RunQueueResults";
 import AIControlCenter from "./components/AIControlCenter";
 import CryptoSelloffDetectionPage from "./components/CryptoSelloffDetectionPage";
 import StockDaytradeBacktestPage from "./components/StockDaytradeBacktestPage";
+import AlgorithmVsSp500Page from "./components/AlgorithmVsSp500Page";
 import { BacktestResult, runBacktest } from "./lib/backtest";
 import { runPerpetualBacktest } from "./lib/perpetualBacktest";
 import { runCryptoAutotraderBacktest } from "./lib/cryptoAutotraderBacktest";
@@ -52,11 +53,13 @@ type AppPage =
   | "stocks_backtest"
   | "stocks_daytrade_orb"
   | "crypto_backtest"
-  | "crypto_selloff_detection";
+  | "crypto_selloff_detection"
+  | "algorithm_vs_sp500";
 type MarketBarsPayload = { bars: Bar[]; earningsEvents: EarningsEvent[] };
 
 const APP_PAGES: { id: AppPage; label: string }[] = [
   { id: "stocks_backtest", label: "Stocks/ETF Backtest" },
+  { id: "algorithm_vs_sp500", label: "Algorithm vs SP500" },
   { id: "stocks_daytrade_orb", label: "Tech Earnings ORB" },
   { id: "crypto_backtest", label: "Crypto Backtest" },
   { id: "crypto_selloff_detection", label: "Crypto Selloff Detection" },
@@ -299,6 +302,7 @@ export default function App() {
         });
         const assetBars = assetData.bars;
         const assetEarningsEvents = assetData.earningsEvents;
+        const marketRecommendation = analyzeMarketCondition(assetBars);
 
         if (assetBars.length === 0) throw new Error("No bars loaded for symbol.");
 
@@ -345,6 +349,7 @@ export default function App() {
             perpetualResult,
             bars: assetBars,
             earningsEvents: assetEarningsEvents,
+            marketRecommendation,
             error: null,
           });
         } else if (run.presetKey === "crypto_autotrader") {
@@ -398,6 +403,7 @@ export default function App() {
             autotraderResult,
             bars: assetBars,
             earningsEvents: assetEarningsEvents,
+            marketRecommendation,
             error: null,
           });
         } else if (run.presetKey === "crypto_short_selloff") {
@@ -445,6 +451,7 @@ export default function App() {
             autotraderResult: shortSelloffResult,
             bars: executionBars,
             earningsEvents: intradayExecution.earningsEvents,
+            marketRecommendation,
             error: null,
           });
         } else if (run.presetKey === "crypto_trend_confidence") {
@@ -467,6 +474,7 @@ export default function App() {
             trendConfidenceResult,
             bars: assetBars,
             earningsEvents: assetEarningsEvents,
+            marketRecommendation,
             error: null,
           });
         } else {
@@ -477,6 +485,7 @@ export default function App() {
             result: computed,
             bars: assetBars,
             earningsEvents: assetEarningsEvents,
+            marketRecommendation,
             error: null,
           });
         }
@@ -578,6 +587,13 @@ export default function App() {
         {activePage === "stocks_daytrade_orb" && (
           <StockDaytradeBacktestPage
             key="stocks_daytrade_orb"
+            apiPrefix={API_PREFIX}
+          />
+        )}
+
+        {activePage === "algorithm_vs_sp500" && (
+          <AlgorithmVsSp500Page
+            key="algorithm_vs_sp500"
             apiPrefix={API_PREFIX}
           />
         )}

@@ -36,6 +36,7 @@ export type StrategyPresetKey =
   | "scale_in"
   | "selloff"
   | "perpetual"
+  | "stock_mean_reversion_swing"
   | "crypto_perpetual_selloff_protection"
   | "crypto_autotrader"
   | "crypto_short_selloff"
@@ -145,6 +146,29 @@ export const STRATEGY_PRESETS: StrategyPreset[] = [
         { signal: { type: "price_vs_sma", period: 30 }, weight: 0.35 },
         { signal: { type: "rsi", period: 14 }, weight: 0.4 },
         { signal: { type: "bollinger_band", period: 20, std_dev: 2 }, weight: 0.25 },
+      ],
+    },
+  },
+  {
+    key: "stock_mean_reversion_swing",
+    label: "stock swing mean reversion",
+    suitableFor: "Stocks/ETFs with pullback-and-rebound behavior where you want multi-day swing entries and exits",
+    tuneHint: "Cadence controls swing pace. Try 2-4 days for active swing cadence or 5-10 for slower setups.",
+    phase: "scale_in",
+    strategyMode: "continuous_range",
+    defaultRangeDays: 240,
+    buyThreshold: 0.64,
+    sellThreshold: 0.42,
+    config: {
+      cadenceDays: 4,
+      scaleInWindowDays: 240,
+      scaleOutWindowDays: 240,
+      aggressiveness: 0.7,
+      signals: [
+        { signal: { type: "rsi", period: 10 }, weight: 0.35 },
+        { signal: { type: "bollinger_band", period: 20, std_dev: 2.2 }, weight: 0.3 },
+        { signal: { type: "price_vs_sma", period: 20 }, weight: 0.25 },
+        { signal: { type: "momentum", period: 7 }, weight: 0.1 },
       ],
     },
   },
