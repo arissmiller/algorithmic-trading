@@ -5,8 +5,6 @@ import RunQueueBuilder, { BacktestRun } from "./components/RunQueueBuilder";
 import RunQueueResults, { RunQueueResult } from "./components/RunQueueResults";
 import AIControlCenter from "./components/AIControlCenter";
 import CryptoSelloffDetectionPage from "./components/CryptoSelloffDetectionPage";
-import StockDaytradeBacktestPage from "./components/StockDaytradeBacktestPage";
-import AlgorithmVsSp500Page from "./components/AlgorithmVsSp500Page";
 import PortfolioVsSp500Page from "./components/PortfolioVsSp500Page";
 import LivePortfolioPage from "./components/LivePortfolioPage";
 import LivePortfolioBacktestPage from "./components/LivePortfolioBacktestPage";
@@ -54,24 +52,30 @@ type AssetClass = "stocks_etf" | "crypto";
 
 type AppPage =
   | "stocks_backtest"
-  | "stocks_daytrade_orb"
   | "crypto_backtest"
   | "crypto_selloff_detection"
-  | "algorithm_vs_sp500"
   | "portfolio_vs_sp500"
   | "live_portfolio"
   | "live_portfolio_backtest";
 type MarketBarsPayload = { bars: Bar[]; earningsEvents: EarningsEvent[] };
 
-const APP_PAGES: { id: AppPage; label: string }[] = [
-  { id: "stocks_backtest", label: "Stocks/ETF Backtest" },
-  { id: "algorithm_vs_sp500", label: "Algorithm vs SP500" },
-  { id: "portfolio_vs_sp500", label: "Portfolio vs Indexes" },
-  { id: "live_portfolio", label: "Live Portfolio" },
-  { id: "live_portfolio_backtest", label: "Live Portfolio Backtest" },
-  { id: "stocks_daytrade_orb", label: "Tech Earnings ORB" },
-  { id: "crypto_backtest", label: "Crypto Backtest" },
-  { id: "crypto_selloff_detection", label: "Crypto Selloff Detection" },
+const APP_PAGE_GROUPS: Array<{ label: string; pages: Array<{ id: AppPage; label: string }> }> = [
+  {
+    label: "Backtesting",
+    pages: [
+      { id: "stocks_backtest", label: "Stocks/ETF Backtest" },
+      { id: "portfolio_vs_sp500", label: "Weighted Portfolio Backtest" },
+      { id: "crypto_backtest", label: "Crypto Backtest" },
+      { id: "crypto_selloff_detection", label: "Crypto Selloff Detection" },
+    ],
+  },
+  {
+    label: "Live Portfolio",
+    pages: [
+      { id: "live_portfolio", label: "Live Portfolio" },
+      { id: "live_portfolio_backtest", label: "Live Portfolio Backtest" },
+    ],
+  },
 ];
 
 export default function App() {
@@ -538,24 +542,33 @@ export default function App() {
             {serverOnline ? "API online" : "API offline"}
           </span>
         </div>
-        <nav className="flex gap-1 overflow-x-auto px-3 py-2">
-          {APP_PAGES.map((page) => {
-            const active = page.id === activePage;
-            return (
-              <button
-                key={page.id}
-                type="button"
-                onClick={() => setActivePage(page.id)}
-                className={`rounded border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide transition-colors ${
-                  active
-                    ? "border-accent/50 bg-accent/15 text-accent"
-                    : "border-border bg-surface-2 text-text-secondary hover:text-text-primary"
-                }`}
-              >
-                {page.label}
-              </button>
-            );
-          })}
+        <nav className="space-y-2 px-3 py-2">
+          {APP_PAGE_GROUPS.map((group) => (
+            <div key={group.label} className="flex items-start gap-2">
+              <p className="w-20 shrink-0 pt-1 text-[9px] font-semibold uppercase tracking-widest text-text-secondary">
+                {group.label}
+              </p>
+              <div className="flex min-w-0 flex-1 gap-1 overflow-x-auto pb-0.5">
+                {group.pages.map((page) => {
+                  const active = page.id === activePage;
+                  return (
+                    <button
+                      key={page.id}
+                      type="button"
+                      onClick={() => setActivePage(page.id)}
+                      className={`shrink-0 rounded border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide transition-colors ${
+                        active
+                          ? "border-accent/50 bg-accent/15 text-accent"
+                          : "border-border bg-surface-2 text-text-secondary hover:text-text-primary"
+                      }`}
+                    >
+                      {page.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
         </nav>
       </header>
 
@@ -589,20 +602,6 @@ export default function App() {
         {activePage === "crypto_selloff_detection" && (
           <CryptoSelloffDetectionPage
             key="crypto_selloff_detection"
-            apiPrefix={API_PREFIX}
-          />
-        )}
-
-        {activePage === "stocks_daytrade_orb" && (
-          <StockDaytradeBacktestPage
-            key="stocks_daytrade_orb"
-            apiPrefix={API_PREFIX}
-          />
-        )}
-
-        {activePage === "algorithm_vs_sp500" && (
-          <AlgorithmVsSp500Page
-            key="algorithm_vs_sp500"
             apiPrefix={API_PREFIX}
           />
         )}
@@ -984,7 +983,7 @@ function AboutPage() {
             <p className="mt-2"><span className="text-text-primary">Scale-Out Start Date + Duration:</span> defines distribution regime.</p>
             <p className="mt-2"><span className="text-text-primary">Cadence:</span> controls tranche density (more frequent vs fewer trades).</p>
             <p className="mt-2"><span className="text-text-primary">Aggressiveness:</span> controls equal-DCA vs signal-weighted behavior.</p>
-            <p className="mt-2"><span className="text-text-primary">Signals:</span> toggle indicator set and rebalance their weights.</p>
+            <p className="mt-2"><span className="text-text-primary">Signals:</span> toggle indicator set and adjust their weights.</p>
             <p className="mt-2"><span className="text-text-primary">Random Ensemble Samples:</span> stabilizes random baseline quality.</p>
           </div>
         </section>

@@ -7,15 +7,12 @@ const BENCHMARK_LINE_COLORS = ["#f59e0b", "#22c55e", "#a78bfa", "#f43f5e", "#14b
 const inputClass =
   "w-full rounded border border-border bg-surface-3 px-2.5 py-1.5 text-xs text-text-primary focus:border-accent focus:outline-none";
 
-type RebalanceFrequency = "none" | "monthly" | "quarterly" | "yearly";
-
 type FormState = {
   allocationsText: string;
   benchmarkSymbolsText: string;
   initialCapital: number;
   startDate: string;
   endDate: string;
-  rebalanceFrequency: RebalanceFrequency;
 };
 
 type BarsApiPayload = {
@@ -74,11 +71,9 @@ type BenchmarkComparisonResult = {
 type PortfolioBacktestResult = {
   requestedStartDate: string;
   requestedEndDate: string;
-  rebalanceFrequency: RebalanceFrequency;
   actualStartDate: string;
   actualEndDate: string;
   tradingDays: number;
-  rebalancesExecuted: number;
   totalRequestedWeightPct: number;
   holdings: HoldingResult[];
   portfolioEquityCurve: PortfolioEquityPoint[];
@@ -98,7 +93,6 @@ type PortfolioBacktestInput = {
   requestedStartDate: string;
   requestedEndDate: string;
   initialCapital: number;
-  rebalanceFrequency: RebalanceFrequency;
 };
 
 const EXAMPLE_ALLOCATIONS = "VOO: 40\nQQQ: 25\nSCHD: 20\nTLT: 15";
@@ -129,7 +123,7 @@ export default function PortfolioVsSp500Page({
   const effectiveAllocationsText = hasFixedAllocations
     ? fixedAllocationsText ?? ""
     : form.allocationsText;
-  const pageTitle = title ?? "Portfolio vs Indexes";
+  const pageTitle = title ?? "Weighted Portfolio Backtest";
   const pageDescription =
     description ??
     "Define stock and ETF percentages, run a weighted portfolio backtest, and compare against one or more benchmark indexes (default: DJI and SP500).";
@@ -295,7 +289,6 @@ export default function PortfolioVsSp500Page({
         requestedStartDate: form.startDate,
         requestedEndDate: form.endDate,
         initialCapital: form.initialCapital,
-        rebalanceFrequency: form.rebalanceFrequency,
       });
       setResult(computed);
       setSelectedBenchmarkSymbol((current) =>
@@ -424,24 +417,6 @@ export default function PortfolioVsSp500Page({
           />
         </Field>
 
-        <Field label="Rebalance Frequency">
-          <select
-            className={inputClass}
-            value={form.rebalanceFrequency}
-            onChange={(event) =>
-              setForm((current) => ({
-                ...current,
-                rebalanceFrequency: event.target.value as RebalanceFrequency,
-              }))
-            }
-          >
-            <option value="none">None (buy and hold weights)</option>
-            <option value="monthly">Monthly</option>
-            <option value="quarterly">Quarterly</option>
-            <option value="yearly">Yearly</option>
-          </select>
-        </Field>
-
         <button
           type="button"
           onClick={() => void runBacktest()}
@@ -494,7 +469,7 @@ export default function PortfolioVsSp500Page({
                 label="Portfolio Max Drawdown"
                 value={`-${result.portfolioMaxDrawdownPct.toFixed(2)}%`}
                 colorClass="text-sell"
-                sub={`${result.rebalancesExecuted} rebalance${result.rebalancesExecuted === 1 ? "" : "s"}`}
+                sub="Buy-and-hold weights"
               />
               <SummaryTile
                 label="Portfolio CAGR"
@@ -823,7 +798,6 @@ function defaultForm(): FormState {
     initialCapital: 10_000,
     startDate,
     endDate,
-    rebalanceFrequency: "none",
   };
 }
 
@@ -953,8 +927,6 @@ function computePortfolioBacktest(input: PortfolioBacktestInput): PortfolioBackt
   }
 
   const portfolioEquityCurve: PortfolioEquityPoint[] = [];
-  let rebalancesExecuted = 0;
-
   for (let index = 0; index < commonPortfolioDates.length; index += 1) {
     const date = commonPortfolioDates[index];
     let portfolioValue = 0;
@@ -969,18 +941,6 @@ function computePortfolioBacktest(input: PortfolioBacktestInput): PortfolioBackt
     }
 
     portfolioEquityCurve.push({ date, portfolioValue });
-
-    if (index > 0) {
-      const prevDate = commonPortfolioDates[index - 1];
-      if (shouldRebalance(prevDate, date, input.rebalanceFrequency)) {
-        for (const allocation of input.allocations) {
-          const close = closeBySymbol.get(allocation.symbol)?.get(date);
-          if (!close || close <= 0) continue;
-          sharesBySymbol.set(allocation.symbol, (portfolioValue * allocation.normalizedWeight) / close);
-        }
-        rebalancesExecuted += 1;
-      }
-    }
   }
 
   const finalPoint = portfolioEquityCurve[portfolioEquityCurve.length - 1];
@@ -1034,11 +994,9 @@ function computePortfolioBacktest(input: PortfolioBacktestInput): PortfolioBackt
   return {
     requestedStartDate: input.requestedStartDate,
     requestedEndDate: input.requestedEndDate,
-    rebalanceFrequency: input.rebalanceFrequency,
     actualStartDate,
     actualEndDate,
     tradingDays: commonPortfolioDates.length,
-    rebalancesExecuted,
     totalRequestedWeightPct: input.totalRequestedWeightPct,
     holdings,
     portfolioEquityCurve,
@@ -1104,25 +1062,6 @@ function computeBenchmarkComparison(input: {
     edgeVsBenchmarkPct: portfolioReturnAlignedPct - benchmarkReturnPct,
     equityCurve,
   };
-}
-
-function shouldRebalance(prevDate: string, currentDate: string, frequency: RebalanceFrequency): boolean {
-  if (frequency === "none") return false;
-  const prev = parseIsoDateToUtc(prevDate);
-  const current = parseIsoDateToUtc(currentDate);
-  if (!prev || !current) return false;
-
-  if (frequency === "monthly") {
-    return prev.getUTCFullYear() !== current.getUTCFullYear() || prev.getUTCMonth() !== current.getUTCMonth();
-  }
-
-  if (frequency === "quarterly") {
-    const prevQuarter = Math.floor(prev.getUTCMonth() / 3);
-    const currentQuarter = Math.floor(current.getUTCMonth() / 3);
-    return prev.getUTCFullYear() !== current.getUTCFullYear() || prevQuarter !== currentQuarter;
-  }
-
-  return prev.getUTCFullYear() !== current.getUTCFullYear();
 }
 
 function buildDailyCloseMap(bars: Bar[]): Map<string, number> {
