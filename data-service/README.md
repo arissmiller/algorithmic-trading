@@ -44,6 +44,8 @@ Watchlist routes remain enabled:
 - `GET /api/bot/watchlist-signals?limit=100`
 - `GET /api/bot/live-signals`
 - `GET /api/bot/live-signals/status`
+- `GET /api/bot/portfolio`
+- `PUT /api/bot/portfolio`
 - `GET /api/bot/paper-runner`
 - `GET /api/bot/paper-runner/:id`
 - `GET /api/bot/strategy-profiles`
@@ -87,6 +89,12 @@ Current watchlist behavior:
 - All callers share the same global watchlists and signal stream.
 - API connection settings are stored under one operator identity (`DEFAULT_OPERATOR_USER_ID`, default `operator`).
 
+Live portfolio behavior:
+
+- Portfolio allocations/thresholds are file-backed at `data-service/live-portfolio-state.json` by default.
+- Edit that file directly to control target percentages.
+- The service auto-reloads file edits on the next portfolio request.
+
 ## Why this split helps
 
 - Frontend on GitHub Pages stays static
@@ -126,6 +134,15 @@ Before exposing this service publicly, set these Railway environment variables:
 - `LIVE_SIGNAL_HISTORY_LIMIT`:
 	- Max in-memory live signal rows retained for `/api/bot/live-signals`.
 	- Default: `500`
+- `LIVE_PORTFOLIO_ALLOCATIONS`:
+	- Optional default target weights for `/api/bot/portfolio` in `SYMBOL:PCT` format.
+	- Example: `SPY:50,QQQ:30,TLT:20`
+- `LIVE_PORTFOLIO_STATE_FILE`:
+	- Optional path override for persisted portfolio allocation state.
+	- Default: `<data-service>/live-portfolio-state.json`
+- `LIVE_PORTFOLIO_SNAPSHOT_TTL_MS`:
+	- Cache TTL (ms) for computed `/api/bot/portfolio` snapshots.
+	- Default: `60000`
 - `ENABLE_BACKEND_PAPER_CRYPTO_RUNNER`:
 	- Enables backend-managed paper trading bot startup at server boot.
 	- Default: `false`

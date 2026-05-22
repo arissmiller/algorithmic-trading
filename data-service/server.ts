@@ -9,6 +9,7 @@ import { UserApiConnectionStore } from "./userApiConnections.ts";
 import { handleBotRoutes } from "./routes/botRoutes.ts";
 import { handleBarsRoute } from "./routes/barsRoute.ts";
 import { firstHeaderValue } from "./httpUtils.ts";
+import { loadLivePortfolioState } from "./livePortfolio.ts";
 import {
   PORT,
   API_CONNECTION_STATE_FILE,
@@ -156,6 +157,7 @@ server.listen(PORT, () => {
   }
   void initializeWatchlistExecution();
   void apiConnectionStore.load();
+  void loadLivePortfolioState();
   startSecEarningsSyncLoop();
 });
 

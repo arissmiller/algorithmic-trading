@@ -493,12 +493,25 @@ async function fetchCryptoFromAlpaca(
 }
 
 function resolveAlpacaSymbol(symbol: string): string {
-  // Alpaca stock bars do not provide index symbols directly.
-  if (symbol === "^GSPC") {
-    return "SPY";
-  }
-  return symbol;
+  // Alpaca stock bars do not provide many index symbols directly.
+  // Map common index tickers to liquid ETF proxies so benchmark backtests
+  // can still run without a provider-specific index feed.
+  const mapped = INDEX_PROXY_ETF_BY_SYMBOL[symbol];
+  return mapped ?? symbol;
 }
+
+const INDEX_PROXY_ETF_BY_SYMBOL: Record<string, string> = {
+  "^GSPC": "SPY",
+  "^SPX": "SPY",
+  "SPX": "SPY",
+  "^DJI": "DIA",
+  "DJI": "DIA",
+  "^IXIC": "QQQ",
+  "^NDX": "QQQ",
+  "NDX": "QQQ",
+  "^RUT": "IWM",
+  "RUT": "IWM",
+};
 
 function isCryptoSymbol(symbol: string): boolean {
   const upper = symbol.trim().toUpperCase();

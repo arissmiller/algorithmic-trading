@@ -26,6 +26,10 @@ import {
   getLiveSignals,
   getLiveSignalsMonitorStatus,
 } from "../liveSignalsMonitor.ts";
+import {
+  getLivePortfolioSnapshot,
+  updateLivePortfolioConfig,
+} from "../livePortfolio.ts";
 import { UserApiConnectionStore, UserApiConnectionInput } from "../userApiConnections.ts";
 import { BOT_TUNING, BOT_TUNING_PROFILES, BotTuningProfileKey } from "../botTuning.ts";
 import { fetchAlpacaAccountSnapshot } from "../core.ts";
@@ -72,6 +76,26 @@ export async function handleBotRoutes(
         profiles: BOT_TUNING_PROFILES,
       })
     );
+    return;
+  }
+
+  if (url.pathname === "/api/bot/portfolio" && req.method === "GET") {
+    const snapshot = await getLivePortfolioSnapshot();
+    res.writeHead(200);
+    res.end(JSON.stringify(snapshot));
+    return;
+  }
+
+  if (url.pathname === "/api/bot/portfolio" && req.method === "PUT") {
+    try {
+      const body = await readJsonBody(req);
+      const config = await updateLivePortfolioConfig(body);
+      res.writeHead(200);
+      res.end(JSON.stringify({ ok: true, config }));
+    } catch (err) {
+      res.writeHead(400);
+      res.end(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }));
+    }
     return;
   }
 

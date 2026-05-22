@@ -7,6 +7,9 @@ import AIControlCenter from "./components/AIControlCenter";
 import CryptoSelloffDetectionPage from "./components/CryptoSelloffDetectionPage";
 import StockDaytradeBacktestPage from "./components/StockDaytradeBacktestPage";
 import AlgorithmVsSp500Page from "./components/AlgorithmVsSp500Page";
+import PortfolioVsSp500Page from "./components/PortfolioVsSp500Page";
+import LivePortfolioPage from "./components/LivePortfolioPage";
+import LivePortfolioBacktestPage from "./components/LivePortfolioBacktestPage";
 import { BacktestResult, runBacktest } from "./lib/backtest";
 import { runPerpetualBacktest } from "./lib/perpetualBacktest";
 import { runCryptoAutotraderBacktest } from "./lib/cryptoAutotraderBacktest";
@@ -54,12 +57,18 @@ type AppPage =
   | "stocks_daytrade_orb"
   | "crypto_backtest"
   | "crypto_selloff_detection"
-  | "algorithm_vs_sp500";
+  | "algorithm_vs_sp500"
+  | "portfolio_vs_sp500"
+  | "live_portfolio"
+  | "live_portfolio_backtest";
 type MarketBarsPayload = { bars: Bar[]; earningsEvents: EarningsEvent[] };
 
 const APP_PAGES: { id: AppPage; label: string }[] = [
   { id: "stocks_backtest", label: "Stocks/ETF Backtest" },
   { id: "algorithm_vs_sp500", label: "Algorithm vs SP500" },
+  { id: "portfolio_vs_sp500", label: "Portfolio vs Indexes" },
+  { id: "live_portfolio", label: "Live Portfolio" },
+  { id: "live_portfolio_backtest", label: "Live Portfolio Backtest" },
   { id: "stocks_daytrade_orb", label: "Tech Earnings ORB" },
   { id: "crypto_backtest", label: "Crypto Backtest" },
   { id: "crypto_selloff_detection", label: "Crypto Selloff Detection" },
@@ -594,6 +603,27 @@ export default function App() {
         {activePage === "algorithm_vs_sp500" && (
           <AlgorithmVsSp500Page
             key="algorithm_vs_sp500"
+            apiPrefix={API_PREFIX}
+          />
+        )}
+
+        {activePage === "portfolio_vs_sp500" && (
+          <PortfolioVsSp500Page
+            key="portfolio_vs_sp500"
+            apiPrefix={API_PREFIX}
+          />
+        )}
+
+        {activePage === "live_portfolio" && (
+          <LivePortfolioPage
+            key="live_portfolio"
+            apiPrefix={API_PREFIX}
+          />
+        )}
+
+        {activePage === "live_portfolio_backtest" && (
+          <LivePortfolioBacktestPage
+            key="live_portfolio_backtest"
             apiPrefix={API_PREFIX}
           />
         )}

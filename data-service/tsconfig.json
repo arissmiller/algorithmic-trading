@@ -17,6 +17,7 @@
     "botEngine.ts",
     "botSignals.ts",
     "botTuning.ts",
+    "livePortfolio.ts",
     "userApiConnections.ts",
     "watchlistExecution.ts",
     "signalDispatch.ts",

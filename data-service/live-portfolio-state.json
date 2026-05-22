@@ -1,0 +1,24 @@
+{
+  "allocations": [
+    { "symbol": "VOO", "targetPct": 10 },
+    { "symbol": "VXUS", "targetPct": 5 },
+    { "symbol": "CNXT", "targetPct": 5 },
+    { "symbol": "NVDA", "targetPct": 8 },
+    { "symbol": "TSM", "targetPct": 6},
+    { "symbol": "ASML", "targetPct": 6},
+    { "symbol": "AMAT", "targetPct": 4},
+    { "symbol": "ETN", "targetPct": 5},
+    { "symbol": "VRT", "targetPct": 3},
+    { "symbol": "LIN", "targetPct": 2},
+    { "symbol": "FCX", "targetPct": 2},
+    { "symbol": "CRWD", "targetPct": 5},
+    { "symbol": "ROK", "targetPct": 5},
+    { "symbol": "PH", "targetPct": 4},
+    { "symbol": "GEV", "targetPct": 4},
+    { "symbol": "MU", "targetPct": 4},
+    { "symbol": "APD", "targetPct": 4}
+  ],
+  "buyThreshold": 0.6,
+  "sellThreshold": 0.4,
+  "updatedAt": "2026-05-21T00:00:00.000Z"
+}
