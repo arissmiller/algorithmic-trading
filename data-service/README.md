@@ -271,6 +271,8 @@ Before exposing this service publicly, set these Railway environment variables:
 - `BACKTEST_CACHE_DATABASE_URL`:
 	- Optional PostgreSQL connection string for persistent Alpaca bar caching used by `/api/bars`.
 	- Recommended: point this at a second Railway Postgres instance dedicated to market-data cache.
+	- Alias env vars also supported: `BAR_CACHE_DATABASE_URL`, `BARS_CACHE_DATABASE_URL`,
+	  `DATABASE_URL`, `DATABASE_PRIVATE_URL`, `POSTGRES_URL`, `POSTGRESQL_URL`.
 	- If unset, `/api/bars` still uses in-memory cache per service instance (non-persistent); Postgres adds persistence across restarts/instances.
 - `BACKTEST_CACHE_TABLE`:
 	- Optional table name for bar cache records.
@@ -287,6 +289,10 @@ Before exposing this service publicly, set these Railway environment variables:
 - `BAR_CACHE_TTL_5_MIN_MS`:
 	- Optional cache TTL for 5-minute (`5Min`) day-sliced bars.
 	- Default: `43200000` (12 hours)
+- `BAR_CACHE_STALE_FALLBACK_MAX_AGE_MS`:
+	- Maximum stale-cache age (milliseconds) allowed as fallback when Alpaca responds with a rate-limit error.
+	- Applies to non-intraday `/api/bars` requests after cache misses.
+	- Default: `86400000` (24 hours)
 - `MARKET_DATA_MAX_CONCURRENT_REQUESTS`:
 	- Max concurrent outbound upstream market-data/account requests per service instance.
 	- Default: `4`

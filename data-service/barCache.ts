@@ -12,7 +12,11 @@ export interface CachedApiBar {
 const BAR_CACHE_DATABASE_URL = trimToNull(
   process.env.BACKTEST_CACHE_DATABASE_URL ??
     process.env.BAR_CACHE_DATABASE_URL ??
-    process.env.BARS_CACHE_DATABASE_URL
+    process.env.BARS_CACHE_DATABASE_URL ??
+    process.env.DATABASE_URL ??
+    process.env.DATABASE_PRIVATE_URL ??
+    process.env.POSTGRES_URL ??
+    process.env.POSTGRESQL_URL
 );
 const BAR_CACHE_TABLE_NAME = sanitizeSqlIdentifier(
   trimToNull(process.env.BACKTEST_CACHE_TABLE) ?? "backtest_bars_cache"
@@ -31,6 +35,7 @@ const BAR_CACHE_TTL_5_MIN_MS = parsePositiveIntEnv(
 interface MemoryBarsCacheEntry {
   symbol: string;
   bars: CachedApiBar[];
+  cachedAtMs: number;
   expiresAtMs: number;
 }
 
@@ -40,6 +45,7 @@ let pool: Pool | null = null;
 let setupPromise: Promise<void> | null = null;
 let setupFailed = false;
 let setupFailureReason = "";
+let warnedMissingPersistentCacheUrl = false;
 
 export async function getCachedBars(input: {
   symbol: string;
@@ -151,6 +157,12 @@ export async function upsertCachedBars(input: {
 
 async function getReadyPool(): Promise<Pool | null> {
   if (!BAR_CACHE_DATABASE_URL) {
+    if (!warnedMissingPersistentCacheUrl) {
+      warnedMissingPersistentCacheUrl = true;
+      console.warn(
+        "[bar-cache] persistent cache disabled (no cache DB URL env configured); using in-memory cache only"
+      );
+    }
     return null;
   }
 
@@ -273,10 +285,12 @@ function setMemoryCachedBars(input: {
   ttlMs: number;
 }): void {
   const cacheKey = buildCacheKey(input.symbol, input.range, input.timeframe);
+  const nowMs = Date.now();
   memoryBarsCache.set(cacheKey, {
     symbol: input.symbol,
     bars: cloneBars(input.bars),
-    expiresAtMs: Date.now() + input.ttlMs,
+    cachedAtMs: nowMs,
+    expiresAtMs: nowMs + input.ttlMs,
   });
 }
 
@@ -298,6 +312,78 @@ function getMemoryCachedBars(input: {
   };
 }
 
+export async function getStaleCachedBars(input: {
+  symbol: string;
+  range: string;
+  timeframe: "1Day" | "1Hour" | "15Min" | "5Min";
+  maxAgeMs: number;
+}): Promise<{ symbol: string; bars: CachedApiBar[]; cachedAtMs: number } | null> {
+  const maxAgeMs = Math.max(1, input.maxAgeMs);
+  const memoryStale = getMemoryCachedBarsIncludingExpired(input);
+  if (memoryStale) {
+    const ageMs = Date.now() - memoryStale.cachedAtMs;
+    if (ageMs <= maxAgeMs) {
+      return memoryStale;
+    }
+  }
+
+  const cachePool = await getReadyPool();
+  if (!cachePool) {
+    return null;
+  }
+
+  try {
+    const result = await cachePool.query(
+      `
+        select symbol, bars, fetched_at
+        from ${BAR_CACHE_TABLE_NAME}
+        where symbol = $1
+          and range = $2
+          and timeframe = $3
+        limit 1
+      `,
+      [input.symbol, input.range, input.timeframe]
+    );
+
+    if (result.rowCount === 0) {
+      return null;
+    }
+
+    const row = result.rows[0] as {
+      symbol?: unknown;
+      bars?: unknown;
+      fetched_at?: unknown;
+    };
+    if (typeof row.symbol !== "string") {
+      return null;
+    }
+
+    const bars = parseCachedBars(row.bars);
+    if (!bars) {
+      return null;
+    }
+
+    const cachedAtMs = toEpochMs(row.fetched_at);
+    if (!Number.isFinite(cachedAtMs)) {
+      return null;
+    }
+
+    const ageMs = Date.now() - cachedAtMs;
+    if (ageMs > maxAgeMs) {
+      return null;
+    }
+
+    return {
+      symbol: row.symbol,
+      bars: cloneBars(bars),
+      cachedAtMs,
+    };
+  } catch (err) {
+    warnCacheIssue("stale fallback read failed", err);
+    return null;
+  }
+}
+
 function buildCacheKey(
   symbol: string,
   range: string,
@@ -308,6 +394,32 @@ function buildCacheKey(
 
 function cloneBars(bars: CachedApiBar[]): CachedApiBar[] {
   return bars.map((bar) => ({ ...bar }));
+}
+
+function getMemoryCachedBarsIncludingExpired(input: {
+  symbol: string;
+  range: string;
+  timeframe: "1Day" | "1Hour" | "15Min" | "5Min";
+}): { symbol: string; bars: CachedApiBar[]; cachedAtMs: number } | null {
+  const cacheKey = buildCacheKey(input.symbol, input.range, input.timeframe);
+  const cached = memoryBarsCache.get(cacheKey);
+  if (!cached) return null;
+  return {
+    symbol: cached.symbol,
+    bars: cloneBars(cached.bars),
+    cachedAtMs: cached.cachedAtMs,
+  };
+}
+
+function toEpochMs(value: unknown): number {
+  if (value instanceof Date) {
+    return value.getTime();
+  }
+  if (typeof value === "string" || typeof value === "number") {
+    const parsed = new Date(value).getTime();
+    return Number.isFinite(parsed) ? parsed : Number.NaN;
+  }
+  return Number.NaN;
 }
 
 function trimToNull(value: string | undefined): string | null {

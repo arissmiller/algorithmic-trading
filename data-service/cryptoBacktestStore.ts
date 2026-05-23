@@ -19,7 +19,11 @@ export interface CryptoUniverseMember {
 const STORE_DATABASE_URL = trimToNull(
   process.env.BACKTEST_CACHE_DATABASE_URL ??
     process.env.BAR_CACHE_DATABASE_URL ??
-    process.env.BARS_CACHE_DATABASE_URL
+    process.env.BARS_CACHE_DATABASE_URL ??
+    process.env.DATABASE_URL ??
+    process.env.DATABASE_PRIVATE_URL ??
+    process.env.POSTGRES_URL ??
+    process.env.POSTGRESQL_URL
 );
 const STORE_TABLE_NAME = sanitizeSqlIdentifier(
   trimToNull(process.env.BACKTEST_CRYPTO_HOURLY_TABLE) ?? "backtest_crypto_hourly_bars"

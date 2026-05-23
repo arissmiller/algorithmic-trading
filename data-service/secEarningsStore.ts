@@ -4,7 +4,12 @@ import type { EarningsEvent } from "./earningsTypes.ts";
 const SEC_EARNINGS_DATABASE_URL = trimToNull(
   process.env.SEC_EARNINGS_DATABASE_URL ??
     process.env.BACKTEST_CACHE_DATABASE_URL ??
-    process.env.BAR_CACHE_DATABASE_URL
+    process.env.BAR_CACHE_DATABASE_URL ??
+    process.env.BARS_CACHE_DATABASE_URL ??
+    process.env.DATABASE_URL ??
+    process.env.DATABASE_PRIVATE_URL ??
+    process.env.POSTGRES_URL ??
+    process.env.POSTGRESQL_URL
 );
 const SEC_EARNINGS_TABLE_NAME = sanitizeSqlIdentifier(
   trimToNull(process.env.SEC_EARNINGS_TABLE) ?? "backtest_sec_earnings_cache"

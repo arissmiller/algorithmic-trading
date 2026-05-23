@@ -1,4 +1,4 @@
-import { getCachedBars, upsertCachedBars } from "./barCache";
+import { getCachedBars, getStaleCachedBars, upsertCachedBars } from "./barCache";
 import {
   getStoredCryptoBacktestBars,
   upsertStoredCryptoBacktestBars,
@@ -44,6 +44,10 @@ const MARKET_DATA_MAX_CONCURRENT_REQUESTS = normalizePositiveInt(
 const MARKET_DATA_MIN_INTERVAL_MS = normalizeNonNegativeInt(
   process.env.MARKET_DATA_MIN_INTERVAL_MS,
   120
+);
+const BAR_CACHE_STALE_FALLBACK_MAX_AGE_MS = normalizePositiveInt(
+  process.env.BAR_CACHE_STALE_FALLBACK_MAX_AGE_MS,
+  24 * 60 * 60 * 1000
 );
 const ALPHA_VANTAGE_EARNINGS_URL =
   process.env.ALPHA_VANTAGE_EARNINGS_URL?.trim() ||
@@ -211,17 +215,51 @@ async function fetchMarketBarsUncached(input: {
       earningsEvents,
     };
   }
+  const staleFallback = await getStaleCachedBars({
+    symbol: cacheSymbol,
+    range,
+    timeframe,
+    maxAgeMs: BAR_CACHE_STALE_FALLBACK_MAX_AGE_MS,
+  });
 
   if (!hasAlpacaCredentials()) {
+    if (staleFallback) {
+      const earningsEvents = await loadEarningsEventsForBars(symbol, staleFallback.bars);
+      return {
+        symbol: staleFallback.symbol,
+        bars: staleFallback.bars,
+        earningsEvents,
+      };
+    }
     throw new ApiHttpError(
       400,
       "Missing Alpaca API credentials. Set APCA_API_KEY_ID and APCA_API_SECRET_KEY."
     );
   }
 
-  const fresh = isCryptoSymbol(symbol)
-    ? await fetchCryptoFromAlpaca(symbol, range, timeframe)
-    : await fetchFromAlpaca(symbol, range, timeframe);
+  let fresh: { symbol: string; bars: ApiBar[] };
+  try {
+    fresh = isCryptoSymbol(symbol)
+      ? await fetchCryptoFromAlpaca(symbol, range, timeframe)
+      : await fetchFromAlpaca(symbol, range, timeframe);
+  } catch (err) {
+    if (staleFallback && isAlpacaRateLimitError(err)) {
+      console.warn(
+        `[bars] upstream rate-limited; serving stale cached bars for ${cacheSymbol} ` +
+          `(${timeframe}/${range}, age=${Math.max(
+            0,
+            Math.round((Date.now() - staleFallback.cachedAtMs) / 1000)
+          )}s)`
+      );
+      const earningsEvents = await loadEarningsEventsForBars(symbol, staleFallback.bars);
+      return {
+        symbol: staleFallback.symbol,
+        bars: staleFallback.bars,
+        earningsEvents,
+      };
+    }
+    throw err;
+  }
 
   await upsertCachedBars({
     symbol: fresh.symbol,
@@ -536,6 +574,14 @@ function resolveAlpacaSymbol(symbol: string): string {
   // can still run without a provider-specific index feed.
   const mapped = INDEX_PROXY_ETF_BY_SYMBOL[symbol];
   return mapped ?? symbol;
+}
+
+function isAlpacaRateLimitError(err: unknown): boolean {
+  return (
+    err instanceof ApiHttpError &&
+    err.status === 502 &&
+    err.message.toLowerCase().includes("rate limit")
+  );
 }
 
 const INDEX_PROXY_ETF_BY_SYMBOL: Record<string, string> = {
