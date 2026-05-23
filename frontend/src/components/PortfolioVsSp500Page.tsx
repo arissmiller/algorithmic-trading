@@ -1,9 +1,13 @@
 import { ColorType, createChart, type IChartApi, LineSeries, LineStyle, type Time } from "lightweight-charts";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type BenchmarkPreset,
+  defaultMarketBenchmarkSymbols,
+  normalizeBenchmarkSymbolList,
+} from "../lib/benchmarkPresets";
 import type { Bar } from "../lib/signals";
 import { apiFetch } from "../lib/apiFetch";
 
-const DEFAULT_BENCHMARK_SYMBOLS = ["^DJI", "^GSPC"];
 const BENCHMARK_LINE_COLORS = ["#f59e0b", "#22c55e", "#a78bfa", "#f43f5e", "#14b8a6", "#eab308"];
 
 const inputClass =
@@ -98,7 +102,14 @@ type PortfolioBacktestInput = {
 };
 
 const EXAMPLE_ALLOCATIONS = "VOO: 40\nQQQ: 25\nSCHD: 20\nTLT: 15";
-const EXAMPLE_BENCHMARKS = DEFAULT_BENCHMARK_SYMBOLS.join("\n");
+const EXAMPLE_BENCHMARKS = defaultMarketBenchmarkSymbols().join("\n");
+
+type NormalizedBenchmarkPreset = {
+  id: string;
+  label: string;
+  symbols: string[];
+  description: string | null;
+};
 
 type PortfolioVsIndexesPageProps = {
   apiPrefix: string;
@@ -106,6 +117,10 @@ type PortfolioVsIndexesPageProps = {
   description?: string;
   fixedAllocationsText?: string | null;
   fixedAllocationsSourceLabel?: string;
+  benchmarkInputLabel?: string;
+  benchmarkInputHint?: string;
+  defaultBenchmarkSymbols?: string[];
+  benchmarkPresets?: BenchmarkPreset[];
 };
 
 export default function PortfolioVsSp500Page({
@@ -114,21 +129,40 @@ export default function PortfolioVsSp500Page({
   description,
   fixedAllocationsText,
   fixedAllocationsSourceLabel,
+  benchmarkInputLabel,
+  benchmarkInputHint,
+  defaultBenchmarkSymbols,
+  benchmarkPresets,
 }: PortfolioVsIndexesPageProps) {
+  const normalizedBenchmarkPresets = useMemo(
+    () => normalizeBenchmarkPresets(benchmarkPresets),
+    [benchmarkPresets]
+  );
+  const effectiveDefaultBenchmarkSymbols = useMemo(() => {
+    const defaults = normalizeBenchmarkSymbolList(defaultBenchmarkSymbols ?? []);
+    if (defaults.length > 0) return defaults;
+    if (normalizedBenchmarkPresets.length > 0) return normalizedBenchmarkPresets[0].symbols;
+    return defaultMarketBenchmarkSymbols();
+  }, [defaultBenchmarkSymbols, normalizedBenchmarkPresets]);
+
   const [running, setRunning] = useState(false);
   const [runError, setRunError] = useState<string | null>(null);
   const [runWarnings, setRunWarnings] = useState<string[]>([]);
   const [result, setResult] = useState<PortfolioBacktestResult | null>(null);
   const [selectedBenchmarkSymbol, setSelectedBenchmarkSymbol] = useState<string>("");
-  const [form, setForm] = useState<FormState>(() => defaultForm());
+  const [form, setForm] = useState<FormState>(() => defaultForm(effectiveDefaultBenchmarkSymbols));
   const hasFixedAllocations = fixedAllocationsText !== undefined && fixedAllocationsText !== null;
   const effectiveAllocationsText = hasFixedAllocations
     ? fixedAllocationsText ?? ""
     : form.allocationsText;
   const pageTitle = title ?? "Weighted Portfolio Backtest";
+  const benchmarkFieldLabel = benchmarkInputLabel ?? "Benchmark Indexes / ETFs";
+  const benchmarkFieldHint =
+    benchmarkInputHint ??
+    "One per line or comma-separated. Example: ^GSPC, ^DJI, QQQ";
   const pageDescription =
     description ??
-    "Define stock and ETF percentages, run a weighted portfolio backtest, and compare against one or more benchmark indexes (default: DJI and SP500).";
+    "Define stock and ETF percentages, run a weighted portfolio backtest, and compare against one or more benchmark indexes or ETFs.";
 
   const barsCacheRef = useRef<Record<string, Bar[]>>({});
 
@@ -155,6 +189,15 @@ export default function PortfolioVsSp500Page({
       };
     }
   }, [form.benchmarkSymbolsText]);
+
+  const activeBenchmarkPreset = useMemo(() => {
+    if (benchmarkPreview.error || benchmarkPreview.symbols.length === 0) return null;
+    return (
+      normalizedBenchmarkPresets.find((preset) =>
+        areSameSymbolSet(preset.symbols, benchmarkPreview.symbols)
+      ) ?? null
+    );
+  }, [benchmarkPreview.error, benchmarkPreview.symbols, normalizedBenchmarkPresets]);
 
   const selectedBenchmark =
     result?.benchmarks.find((benchmark) => benchmark.symbol === selectedBenchmarkSymbol) ??
@@ -365,7 +408,7 @@ export default function PortfolioVsSp500Page({
           </Field>
         )}
 
-        <Field label="Benchmark Indexes">
+        <Field label={benchmarkFieldLabel}>
           <textarea
             className={inputClass}
             rows={3}
@@ -376,8 +419,40 @@ export default function PortfolioVsSp500Page({
             placeholder={EXAMPLE_BENCHMARKS}
           />
           <p className="mt-1 text-[11px] text-text-secondary">
-            One per line or comma-separated. Example: <span className="font-mono">^DJI, ^GSPC</span>
+            {benchmarkFieldHint}
           </p>
+          {normalizedBenchmarkPresets.length > 0 ? (
+            <div className="mt-2 rounded border border-border bg-surface-2 px-2.5 py-2">
+              <p className="text-[11px] font-semibold text-text-secondary">Quick Presets</p>
+              <div className="mt-1.5 flex flex-wrap gap-1.5">
+                {normalizedBenchmarkPresets.map((preset) => {
+                  const active = activeBenchmarkPreset?.id === preset.id;
+                  return (
+                    <button
+                      key={preset.id}
+                      type="button"
+                      onClick={() =>
+                        setForm((current) => ({
+                          ...current,
+                          benchmarkSymbolsText: preset.symbols.join("\n"),
+                        }))
+                      }
+                      className={`rounded border px-2 py-1 text-[11px] font-semibold transition-colors ${
+                        active
+                          ? "border-accent/50 bg-accent/15 text-accent"
+                          : "border-border bg-surface-3 text-text-secondary hover:text-text-primary"
+                      }`}
+                    >
+                      {preset.label}
+                    </button>
+                  );
+                })}
+              </div>
+              {activeBenchmarkPreset?.description ? (
+                <p className="mt-1.5 text-[11px] text-text-secondary">{activeBenchmarkPreset.description}</p>
+              ) : null}
+            </div>
+          ) : null}
           {benchmarkPreview.error ? (
             <p className="mt-1 text-[11px] text-sell">{benchmarkPreview.error}</p>
           ) : (
@@ -853,12 +928,15 @@ function colorForBenchmark(index: number): string {
   return BENCHMARK_LINE_COLORS[index % BENCHMARK_LINE_COLORS.length];
 }
 
-function defaultForm(): FormState {
+function defaultForm(defaultBenchmarkSymbols?: string[]): FormState {
   const endDate = todayIsoDate();
   const startDate = addDaysIso(endDate, -365 * 3);
+  const benchmarkSymbols = normalizeBenchmarkSymbolList(defaultBenchmarkSymbols ?? []);
+  const fallbackBenchmarks = defaultMarketBenchmarkSymbols();
+  const resolvedBenchmarkSymbols = benchmarkSymbols.length > 0 ? benchmarkSymbols : fallbackBenchmarks;
   return {
     allocationsText: EXAMPLE_ALLOCATIONS,
-    benchmarkSymbolsText: EXAMPLE_BENCHMARKS,
+    benchmarkSymbolsText: resolvedBenchmarkSymbols.join("\n"),
     initialCapital: 10_000,
     startDate,
     endDate,
@@ -920,7 +998,7 @@ function parseBenchmarkSymbolsInput(input: string): string[] {
     .filter(Boolean);
 
   if (entries.length === 0) {
-    throw new Error("Enter at least one benchmark index symbol.");
+    throw new Error("Enter at least one benchmark symbol.");
   }
 
   const unique = new Set<string>();
@@ -938,13 +1016,54 @@ function parseBenchmarkSymbolsInput(input: string): string[] {
   return Array.from(unique);
 }
 
+function normalizeBenchmarkPresets(
+  presets: BenchmarkPreset[] | undefined
+): NormalizedBenchmarkPreset[] {
+  if (!Array.isArray(presets) || presets.length === 0) return [];
+
+  const out: NormalizedBenchmarkPreset[] = [];
+  const usedIds = new Set<string>();
+
+  for (let index = 0; index < presets.length; index += 1) {
+    const preset = presets[index];
+    const rawSymbols = Array.isArray(preset.symbols) ? preset.symbols : [];
+    const symbols = normalizeBenchmarkSymbolList(rawSymbols);
+    if (symbols.length === 0) continue;
+
+    const baseId = preset.id?.trim() || `preset_${index + 1}`;
+    let id = baseId;
+    let suffix = 2;
+    while (usedIds.has(id)) {
+      id = `${baseId}_${suffix}`;
+      suffix += 1;
+    }
+    usedIds.add(id);
+
+    out.push({
+      id,
+      label: preset.label?.trim() || `Preset ${index + 1}`,
+      symbols,
+      description: preset.description?.trim() || null,
+    });
+  }
+
+  return out;
+}
+
+function areSameSymbolSet(left: string[], right: string[]): boolean {
+  if (left.length !== right.length) return false;
+  const leftSet = new Set(left);
+  if (leftSet.size !== right.length) return false;
+  return right.every((symbol) => leftSet.has(symbol));
+}
+
 function computePortfolioBacktest(input: PortfolioBacktestInput): PortfolioBacktestResult {
   const symbols = input.allocations.map((allocation) => allocation.symbol);
   if (symbols.length === 0) {
     throw new Error("Portfolio must include at least one symbol.");
   }
   if (input.benchmarkSymbols.length === 0) {
-    throw new Error("At least one benchmark index is required.");
+    throw new Error("At least one benchmark symbol is required.");
   }
 
   const closeBySymbol = new Map<string, Map<string, number>>();

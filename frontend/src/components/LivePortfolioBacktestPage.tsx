@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import PortfolioVsSp500Page from "./PortfolioVsSp500Page";
 import { apiFetch } from "../lib/apiFetch";
+import {
+  getDefaultLivePortfolioBenchmarkSymbols,
+  getLivePortfolioBenchmarkPresets,
+} from "../lib/benchmarkPresets";
 
 type LivePortfolioHoldingSnapshot = {
   symbol: string;
@@ -27,6 +31,15 @@ export default function LivePortfolioBacktestPage({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const portfolioUrl = buildPortfolioUrl(apiPrefix, portfolioKey);
+  const effectivePortfolioKey = snapshot?.portfolioKey ?? portfolioKey ?? "";
+  const benchmarkPresets = useMemo(
+    () => getLivePortfolioBenchmarkPresets(effectivePortfolioKey),
+    [effectivePortfolioKey]
+  );
+  const defaultBenchmarkSymbols = useMemo(
+    () => getDefaultLivePortfolioBenchmarkSymbols(effectivePortfolioKey),
+    [effectivePortfolioKey]
+  );
 
   const loadLivePortfolio = useCallback(async (silent: boolean) => {
     if (!silent) {
@@ -141,9 +154,13 @@ export default function LivePortfolioBacktestPage({
     <PortfolioVsSp500Page
       apiPrefix={apiPrefix}
       title={pageTitle}
-      description="Backtest backend portfolio allocations against selected benchmark indexes."
+      description="Backtest backend portfolio allocations against similarly themed ETFs and broad market indexes."
       fixedAllocationsText={fixedAllocationsText}
       fixedAllocationsSourceLabel={sourceLabel}
+      benchmarkInputLabel="Benchmark ETFs / Indexes"
+      benchmarkInputHint="One per line or comma-separated. Use a preset below for themed ETF peers."
+      defaultBenchmarkSymbols={defaultBenchmarkSymbols}
+      benchmarkPresets={benchmarkPresets}
     />
   );
 }
