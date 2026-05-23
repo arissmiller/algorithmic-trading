@@ -188,8 +188,19 @@ Before exposing this service publicly, set these Railway environment variables:
 	- Rate limit window in milliseconds.
 	- Default: `60000`
 - `RATE_LIMIT_MAX`:
-	- Max requests per IP in the window.
+	- Max requests per IP in the window for mutating routes (`POST`, `PUT`, `DELETE`).
 	- Default: `60`
+- `RATE_LIMIT_MAX_READ`:
+	- Max requests per IP in the window for general read routes (`GET`).
+	- Default: `300`
+- `RATE_LIMIT_MAX_BARS`:
+	- Max requests per IP in the window for `/api/bars` reads.
+	- Default: `600`
+- `RATE_LIMIT_MAX_BOT_READ`:
+	- Max requests per IP in the window for hot-read bot/community routes:
+	  `/api/bot/portfolio`, `/api/bot/live-signals`, `/api/bot/live-signals/status`,
+	  and `/api/community/watchlists`.
+	- Default: `600`
 - `APCA_API_KEY_ID` and `APCA_API_SECRET_KEY`:
 	- Required for market bars and account snapshots.
 	- If missing, `/api/bars` and `/api/alpaca/account` return a credential error.

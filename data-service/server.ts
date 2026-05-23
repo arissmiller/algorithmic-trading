@@ -30,10 +30,24 @@ import {
   ENABLE_LIVE_SIGNALS_MONITOR,
   RATE_LIMIT_WINDOW_MS,
   RATE_LIMIT_MAX,
+  RATE_LIMIT_MAX_READ,
+  RATE_LIMIT_MAX_BARS,
+  RATE_LIMIT_MAX_BOT_READ,
 } from "./config.ts";
 import { startSecEarningsSyncLoop } from "./secEarningsStore.ts";
 
 type RateLimitBucket = { count: number; resetAtMs: number };
+type RateLimitPolicy = {
+  bucket: "mutating" | "bars_read" | "bot_hot_read" | "bot_read" | "read";
+  max: number;
+  windowMs: number;
+};
+type RateLimitDecision = {
+  limited: boolean;
+  remaining: number;
+  resetAtMs: number;
+  limit: number;
+};
 type ParsedOrigin = {
   protocol: "http:" | "https:";
   hostname: string;
@@ -119,7 +133,19 @@ const server = http.createServer(async (req, res) => {
   }
 
   const clientIp = getClientIp(req);
-  if (isRateLimited(clientIp)) {
+  const rateLimitPolicy = resolveRateLimitPolicy(req.method ?? "GET", url.pathname);
+  const rateLimitDecision = consumeRateLimit(clientIp, rateLimitPolicy);
+  res.setHeader("X-RateLimit-Bucket", rateLimitPolicy.bucket);
+  res.setHeader("X-RateLimit-Limit", String(rateLimitDecision.limit));
+  res.setHeader("X-RateLimit-Remaining", String(rateLimitDecision.remaining));
+  res.setHeader("X-RateLimit-Reset", String(Math.ceil(rateLimitDecision.resetAtMs / 1000)));
+
+  if (rateLimitDecision.limited) {
+    const retryAfterSeconds = Math.max(
+      1,
+      Math.ceil((rateLimitDecision.resetAtMs - Date.now()) / 1000)
+    );
+    res.setHeader("Retry-After", String(retryAfterSeconds));
     res.writeHead(429);
     res.end(JSON.stringify({ error: "Too many requests" }));
     return;
@@ -310,18 +336,73 @@ function normalizePort(
 }
 
 function getClientIp(req: http.IncomingMessage): string {
-  const fwd = firstHeaderValue(req.headers["x-forwarded-for"]);
-  if (fwd) return fwd.split(",")[0]?.trim() || "unknown";
-  return req.socket.remoteAddress ?? "unknown";
+  const forwardedFor = firstHeaderValue(req.headers["x-forwarded-for"]);
+  if (forwardedFor) {
+    const firstForwarded = forwardedFor.split(",")[0]?.trim();
+    if (firstForwarded) return firstForwarded;
+  }
+
+  const fallbackHeaders = [
+    "cf-connecting-ip",
+    "x-real-ip",
+    "x-client-ip",
+    "true-client-ip",
+  ] as const;
+
+  for (const header of fallbackHeaders) {
+    const value = firstHeaderValue(req.headers[header]);
+    if (value) return value;
+  }
+
+  return req.socket.remoteAddress?.trim() || "unknown";
 }
 
-function isRateLimited(ip: string): boolean {
-  const now = Date.now();
-  const existing = rateLimitBuckets.get(ip);
-  if (!existing || now > existing.resetAtMs) {
-    rateLimitBuckets.set(ip, { count: 1, resetAtMs: now + RATE_LIMIT_WINDOW_MS });
-    return false;
+function resolveRateLimitPolicy(method: string, path: string): RateLimitPolicy {
+  const windowMs = Math.max(1, RATE_LIMIT_WINDOW_MS);
+  if (method !== "GET") {
+    return { bucket: "mutating", max: RATE_LIMIT_MAX, windowMs };
   }
+
+  if (path === "/api/bars" || path.startsWith("/api/bars/")) {
+    return { bucket: "bars_read", max: RATE_LIMIT_MAX_BARS, windowMs };
+  }
+
+  if (
+    path === "/api/bot/portfolio" ||
+    path === "/api/bot/live-signals" ||
+    path === "/api/bot/live-signals/status" ||
+    path === "/api/community/watchlists"
+  ) {
+    return { bucket: "bot_hot_read", max: RATE_LIMIT_MAX_BOT_READ, windowMs };
+  }
+
+  if (path.startsWith("/api/bot/")) {
+    return { bucket: "bot_read", max: RATE_LIMIT_MAX_READ, windowMs };
+  }
+
+  return { bucket: "read", max: RATE_LIMIT_MAX_READ, windowMs };
+}
+
+function consumeRateLimit(ip: string, policy: RateLimitPolicy): RateLimitDecision {
+  const now = Date.now();
+  const key = `${ip}|${policy.bucket}`;
+  const existing = rateLimitBuckets.get(key);
+  if (!existing || now > existing.resetAtMs) {
+    const resetAtMs = now + policy.windowMs;
+    rateLimitBuckets.set(key, { count: 1, resetAtMs });
+    return {
+      limited: false,
+      remaining: Math.max(0, policy.max - 1),
+      resetAtMs,
+      limit: policy.max,
+    };
+  }
+
   existing.count += 1;
-  return existing.count > RATE_LIMIT_MAX;
+  return {
+    limited: existing.count > policy.max,
+    remaining: Math.max(0, policy.max - existing.count),
+    resetAtMs: existing.resetAtMs,
+    limit: policy.max,
+  };
 }

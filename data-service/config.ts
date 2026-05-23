@@ -64,9 +64,12 @@ export const BACKEND_PAPER_CRYPTO_SELLOFF_END_THRESHOLD = Number(
   process.env.BACKEND_PAPER_CRYPTO_SELLOFF_END_THRESHOLD ?? 0.52
 );
 
-export const RATE_LIMIT_WINDOW_MS = Number(process.env.RATE_LIMIT_WINDOW_MS ?? 60_000);
+export const RATE_LIMIT_WINDOW_MS = parsePositiveIntEnv("RATE_LIMIT_WINDOW_MS", 60_000);
 
-export const RATE_LIMIT_MAX = Number(process.env.RATE_LIMIT_MAX ?? 60);
+export const RATE_LIMIT_MAX = parsePositiveIntEnv("RATE_LIMIT_MAX", 60);
+export const RATE_LIMIT_MAX_READ = parsePositiveIntEnv("RATE_LIMIT_MAX_READ", 300);
+export const RATE_LIMIT_MAX_BARS = parsePositiveIntEnv("RATE_LIMIT_MAX_BARS", 600);
+export const RATE_LIMIT_MAX_BOT_READ = parsePositiveIntEnv("RATE_LIMIT_MAX_BOT_READ", 600);
 
 // ---------------------------------------------------------------------------
 // Helpers (exported so tests can use them directly)
@@ -95,4 +98,12 @@ function parseOriginExemptPaths(): Set<string> {
   const legacyPaths = parseCsvEnv("AUTH_EXEMPT_PATHS");
   if (legacyPaths.length > 0) return new Set(legacyPaths);
   return new Set(["/api/health"]);
+}
+
+function parsePositiveIntEnv(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (typeof raw !== "string") return fallback;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return Math.floor(parsed);
 }
