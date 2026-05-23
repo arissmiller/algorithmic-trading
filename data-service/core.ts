@@ -37,6 +37,14 @@ const ALPACA_FEED = (process.env.ALPACA_FEED ?? "iex").trim() || "iex";
 const ALPACA_REQUEST_TIMEOUT_MS = Number(
   process.env.ALPACA_REQUEST_TIMEOUT_MS ?? 10_000
 );
+const MARKET_DATA_MAX_CONCURRENT_REQUESTS = normalizePositiveInt(
+  process.env.MARKET_DATA_MAX_CONCURRENT_REQUESTS,
+  4
+);
+const MARKET_DATA_MIN_INTERVAL_MS = normalizeNonNegativeInt(
+  process.env.MARKET_DATA_MIN_INTERVAL_MS,
+  120
+);
 const ALPHA_VANTAGE_EARNINGS_URL =
   process.env.ALPHA_VANTAGE_EARNINGS_URL?.trim() ||
   "https://www.alphavantage.co/query";
@@ -46,6 +54,11 @@ const EARNINGS_CACHE_TTL_MS = normalizePositiveInt(
   6 * 60 * 60 * 1000
 );
 const earningsEventsCache = new Map<string, CachedEarningsEvents>();
+const inFlightMarketBarsRequests = new Map<string, Promise<MarketBarsPayload>>();
+const upstreamSlotWaiters: Array<() => void> = [];
+let upstreamInFlightCount = 0;
+let upstreamLastDispatchAtMs = 0;
+let upstreamDispatchTimer: ReturnType<typeof setTimeout> | null = null;
 
 export class ApiHttpError extends Error {
   status: number;
@@ -65,7 +78,32 @@ export async function fetchMarketBars(input: {
   startDate?: string | null;
   endDate?: string | null;
   preferStoredHourlyCryptoBars?: boolean;
-}): Promise<{ symbol: string; bars: ApiBar[]; earningsEvents: EarningsEvent[] }> {
+}): Promise<MarketBarsPayload> {
+  const requestKey = buildMarketBarsRequestKey(input);
+  const inFlight = inFlightMarketBarsRequests.get(requestKey);
+  if (inFlight) {
+    return cloneMarketBarsPayload(await inFlight);
+  }
+
+  const requestPromise = fetchMarketBarsUncached(input);
+  inFlightMarketBarsRequests.set(requestKey, requestPromise);
+  try {
+    return cloneMarketBarsPayload(await requestPromise);
+  } finally {
+    if (inFlightMarketBarsRequests.get(requestKey) === requestPromise) {
+      inFlightMarketBarsRequests.delete(requestKey);
+    }
+  }
+}
+
+async function fetchMarketBarsUncached(input: {
+  symbol: string;
+  range: string | null;
+  timeframe?: MarketTimeframe;
+  startDate?: string | null;
+  endDate?: string | null;
+  preferStoredHourlyCryptoBars?: boolean;
+}): Promise<MarketBarsPayload> {
   const symbol = normalizeSymbol(input.symbol);
   if (!symbol) {
     throw new ApiHttpError(400, "Missing symbol");
@@ -784,16 +822,18 @@ async function fetchWithTimeout(
   init: RequestInit,
   timeoutMs: number
 ): Promise<Response> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    return await fetch(input, { ...init, signal: controller.signal });
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    throw new ApiHttpError(502, `Upstream request failed: ${msg}`);
-  } finally {
-    clearTimeout(timeout);
-  }
+  return runWithUpstreamRateLimit(async () => {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      return await fetch(input, { ...init, signal: controller.signal });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new ApiHttpError(502, `Upstream request failed: ${msg}`);
+    } finally {
+      clearTimeout(timeout);
+    }
+  });
 }
 
 function getCutoffDate(range: string): Date | null {
@@ -921,6 +961,108 @@ function normalizePositiveInt(
   return Math.floor(parsed);
 }
 
+function normalizeNonNegativeInt(
+  value: string | undefined,
+  fallbackValue: number
+): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return fallbackValue;
+  }
+  return Math.floor(parsed);
+}
+
+function buildMarketBarsRequestKey(input: {
+  symbol: string;
+  range: string | null;
+  timeframe?: MarketTimeframe;
+  startDate?: string | null;
+  endDate?: string | null;
+  preferStoredHourlyCryptoBars?: boolean;
+}): string {
+  const symbol = normalizeSymbol(input.symbol);
+  const timeframe = input.timeframe ?? "1Day";
+  const normalizedSymbol = isCryptoSymbol(symbol) ? normalizeCryptoSymbol(symbol) : symbol;
+  const range = input.range ?? "";
+  const startDate = input.startDate ?? "";
+  const endDate = input.endDate ?? "";
+  const preferStoredHourlyCryptoBars = input.preferStoredHourlyCryptoBars !== false;
+  return [
+    normalizedSymbol,
+    timeframe,
+    range,
+    startDate,
+    endDate,
+    preferStoredHourlyCryptoBars ? "preferStored" : "forceAlpaca",
+  ].join("::");
+}
+
+function cloneMarketBarsPayload(payload: MarketBarsPayload): MarketBarsPayload {
+  return {
+    symbol: payload.symbol,
+    bars: payload.bars.map((bar) => ({ ...bar })),
+    earningsEvents: payload.earningsEvents.map((event) => ({ ...event })),
+  };
+}
+
+async function runWithUpstreamRateLimit<T>(task: () => Promise<T>): Promise<T> {
+  await acquireUpstreamSlot();
+  try {
+    return await task();
+  } finally {
+    releaseUpstreamSlot();
+  }
+}
+
+function acquireUpstreamSlot(): Promise<void> {
+  return new Promise((resolve) => {
+    upstreamSlotWaiters.push(resolve);
+    pumpUpstreamSlotQueue();
+  });
+}
+
+function releaseUpstreamSlot(): void {
+  upstreamInFlightCount = Math.max(0, upstreamInFlightCount - 1);
+  pumpUpstreamSlotQueue();
+}
+
+function pumpUpstreamSlotQueue(): void {
+  if (upstreamSlotWaiters.length === 0) {
+    return;
+  }
+  if (upstreamInFlightCount >= MARKET_DATA_MAX_CONCURRENT_REQUESTS) {
+    return;
+  }
+
+  const now = Date.now();
+  const waitMs = Math.max(
+    0,
+    MARKET_DATA_MIN_INTERVAL_MS - (now - upstreamLastDispatchAtMs)
+  );
+  if (waitMs > 0) {
+    if (!upstreamDispatchTimer) {
+      upstreamDispatchTimer = setTimeout(() => {
+        upstreamDispatchTimer = null;
+        pumpUpstreamSlotQueue();
+      }, waitMs);
+    }
+    return;
+  }
+
+  const resolve = upstreamSlotWaiters.shift();
+  if (!resolve) {
+    return;
+  }
+
+  upstreamInFlightCount += 1;
+  upstreamLastDispatchAtMs = Date.now();
+  resolve();
+
+  if (MARKET_DATA_MIN_INTERVAL_MS === 0) {
+    pumpUpstreamSlotQueue();
+  }
+}
+
 interface ApiBar {
   t: string;
   o: number;
@@ -928,6 +1070,12 @@ interface ApiBar {
   l: number;
   c: number;
   v: number | null;
+}
+
+interface MarketBarsPayload {
+  symbol: string;
+  bars: ApiBar[];
+  earningsEvents: EarningsEvent[];
 }
 
 interface AlpacaBarsResponse {

@@ -1,6 +1,7 @@
 import { ColorType, createChart, type IChartApi, LineSeries, LineStyle, type Time } from "lightweight-charts";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import type { Bar } from "../lib/signals";
+import { apiFetch } from "../lib/apiFetch";
 
 const DEFAULT_BENCHMARK_SYMBOLS = ["^DJI", "^GSPC"];
 const BENCHMARK_LINE_COLORS = ["#f59e0b", "#22c55e", "#a78bfa", "#f43f5e", "#14b8a6", "#eab308"];
@@ -172,7 +173,7 @@ export default function PortfolioVsSp500Page({
       timeframe: "1Day",
       range,
     });
-    const response = await fetch(`${apiPrefix}/bars?${params.toString()}`);
+    const response = await apiFetch(`${apiPrefix}/bars?${params.toString()}`);
     const payload = (await response.json().catch(() => ({}))) as BarsApiPayload;
     if (!response.ok) {
       throw new Error(payload.error ?? `Failed to fetch ${normalizedSymbol} bars (HTTP ${response.status}).`);

@@ -1,6 +1,7 @@
-import { Fragment, useCallback, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { type Bar } from "../lib/signals";
 import BacktestChart, { type BacktestChartEventMarker } from "./BacktestChart";
+import { apiFetch } from "../lib/apiFetch";
 
 type LivePortfolioSignalWindow = {
   timeframeDays: 7 | 30 | 90;
@@ -54,6 +55,7 @@ type WindowSignalBreakdown = {
 };
 
 const SIGNAL_WINDOWS: Array<7 | 30 | 90> = [7, 30, 90];
+const PRICE_BAR_RETRY_BACKOFF_MS = 60_000;
 
 export default function LivePortfolioPage({
   apiPrefix,
@@ -71,12 +73,23 @@ export default function LivePortfolioPage({
   const [priceBarsBySymbol, setPriceBarsBySymbol] = useState<Record<string, Bar[]>>({});
   const [priceBarsLoadingBySymbol, setPriceBarsLoadingBySymbol] = useState<Record<string, boolean>>({});
   const [priceBarsErrorBySymbol, setPriceBarsErrorBySymbol] = useState<Record<string, string | null>>({});
+  const priceBarsBySymbolRef = useRef<Record<string, Bar[]>>({});
+  const priceBarsLoadingBySymbolRef = useRef<Record<string, boolean>>({});
+  const priceBarsNextRetryAtMsRef = useRef<Record<string, number>>({});
 
   const portfolioUrl = buildPortfolioUrl(apiPrefix, portfolioKey);
   const whitepaperLink = toSafeWhitepaperUrl(snapshot?.whitepaper?.url);
   const liveSinceLabel = formatLiveSinceDay(snapshot?.launchedAt ?? null);
   const aiWhitepaperDisclosure = snapshot?.whitepaper?.disclosure?.trim()
     || "Transparency note: this portfolio whitepaper was originally AI-generated and should be reviewed before relying on it.";
+
+  useEffect(() => {
+    priceBarsBySymbolRef.current = priceBarsBySymbol;
+  }, [priceBarsBySymbol]);
+
+  useEffect(() => {
+    priceBarsLoadingBySymbolRef.current = priceBarsLoadingBySymbol;
+  }, [priceBarsLoadingBySymbol]);
 
   const loadSnapshot = useCallback(async (silent: boolean) => {
     if (silent) {
@@ -86,7 +99,7 @@ export default function LivePortfolioPage({
     }
 
     try {
-      const response = await fetch(portfolioUrl);
+      const response = await apiFetch(portfolioUrl);
       const body = (await response.json().catch(() => ({}))) as Partial<LivePortfolioSnapshot> & {
         error?: string;
       };
@@ -133,9 +146,12 @@ export default function LivePortfolioPage({
   const loadPriceHistory = useCallback(async (symbol: string) => {
     const key = normalizeSymbol(symbol);
     if (!key) return;
-    if ((priceBarsBySymbol[key]?.length ?? 0) > 0) return;
-    if (priceBarsLoadingBySymbol[key]) return;
+    if ((priceBarsBySymbolRef.current[key]?.length ?? 0) > 0) return;
+    if (priceBarsLoadingBySymbolRef.current[key]) return;
+    const nextRetryAtMs = priceBarsNextRetryAtMsRef.current[key] ?? 0;
+    if (nextRetryAtMs > Date.now()) return;
 
+    priceBarsLoadingBySymbolRef.current = { ...priceBarsLoadingBySymbolRef.current, [key]: true };
     setPriceBarsLoadingBySymbol((current) => ({ ...current, [key]: true }));
     setPriceBarsErrorBySymbol((current) => ({ ...current, [key]: null }));
 
@@ -145,7 +161,7 @@ export default function LivePortfolioPage({
         timeframe: "1Day",
         range: "2y",
       });
-      const response = await fetch(`${apiPrefix}/bars?${params.toString()}`);
+      const response = await apiFetch(`${apiPrefix}/bars?${params.toString()}`);
       const body = (await response.json().catch(() => ({}))) as BarsApiPayload;
       if (!response.ok) {
         throw new Error(body.error ?? `Failed to fetch ${key} bars (HTTP ${response.status}).`);
@@ -166,17 +182,20 @@ export default function LivePortfolioPage({
         throw new Error(`No 2-year bars returned for ${key}.`);
       }
 
+      delete priceBarsNextRetryAtMsRef.current[key];
       setPriceBarsBySymbol((current) => ({ ...current, [key]: sortBarsByTime(bars) }));
     } catch (requestError) {
       const message =
         requestError instanceof Error
           ? requestError.message
           : `Failed to load 2-year bars for ${key}.`;
+      priceBarsNextRetryAtMsRef.current[key] = Date.now() + PRICE_BAR_RETRY_BACKOFF_MS;
       setPriceBarsErrorBySymbol((current) => ({ ...current, [key]: message }));
     } finally {
+      priceBarsLoadingBySymbolRef.current = { ...priceBarsLoadingBySymbolRef.current, [key]: false };
       setPriceBarsLoadingBySymbol((current) => ({ ...current, [key]: false }));
     }
-  }, [apiPrefix, priceBarsBySymbol, priceBarsLoadingBySymbol]);
+  }, [apiPrefix]);
 
   useEffect(() => {
     void loadSnapshot(false);

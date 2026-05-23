@@ -33,6 +33,7 @@ export async function handleBarsRoute(
       const userCredentials =
         apiConnectionStore.getSecret(DEFAULT_OPERATOR_USER_ID) ?? undefined;
       const payload = await fetchAlpacaAccountSnapshot(userCredentials);
+      res.setHeader("Cache-Control", "no-store");
       res.writeHead(200);
       res.end(JSON.stringify(payload));
       return;
@@ -54,6 +55,7 @@ export async function handleBarsRoute(
       endDate,
     });
 
+    res.setHeader("Cache-Control", cacheControlForTimeframe(timeframe));
     res.writeHead(200);
     res.end(JSON.stringify(payload));
   } catch (err) {
@@ -66,4 +68,14 @@ export async function handleBarsRoute(
     res.writeHead(500);
     res.end(JSON.stringify({ error: msg }));
   }
+}
+
+function cacheControlForTimeframe(timeframe: "1Day" | "1Hour" | "15Min" | "5Min"): string {
+  if (timeframe === "15Min" || timeframe === "5Min") {
+    return "public, max-age=30, stale-while-revalidate=90";
+  }
+  if (timeframe === "1Hour") {
+    return "public, max-age=60, stale-while-revalidate=240";
+  }
+  return "public, max-age=120, stale-while-revalidate=600";
 }

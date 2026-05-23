@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import PortfolioVsSp500Page from "./PortfolioVsSp500Page";
+import { apiFetch } from "../lib/apiFetch";
 
 type LivePortfolioHoldingSnapshot = {
   symbol: string;
@@ -32,7 +33,7 @@ export default function LivePortfolioBacktestPage({
       setLoading(true);
     }
     try {
-      const response = await fetch(portfolioUrl);
+      const response = await apiFetch(portfolioUrl);
       const body = (await response.json().catch(() => ({}))) as Partial<LivePortfolioSnapshot> & {
         error?: string;
       };

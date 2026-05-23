@@ -54,6 +54,7 @@ export async function handleBotRoutes(
   // Community routes (no bot-engine gate)
   if (url.pathname === "/api/community/watchlists" && req.method === "GET") {
     res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Cache-Control", "public, max-age=30, stale-while-revalidate=120");
     res.writeHead(200);
     res.end(JSON.stringify({ users: getPublicWatchlistUsers() }));
     return;
@@ -67,6 +68,7 @@ export async function handleBotRoutes(
   }
 
   if (url.pathname === "/api/bot/strategy-profiles" && req.method === "GET") {
+    res.setHeader("Cache-Control", "public, max-age=300, stale-while-revalidate=1800");
     res.writeHead(200);
     res.end(
       JSON.stringify({
@@ -83,6 +85,7 @@ export async function handleBotRoutes(
     const portfolioKey = url.searchParams.get("portfolio") ?? undefined;
     try {
       const snapshot = await getLivePortfolioSnapshot(portfolioKey);
+      res.setHeader("Cache-Control", "public, max-age=15, stale-while-revalidate=45");
       res.writeHead(200);
       res.end(JSON.stringify(snapshot));
     } catch (err) {
@@ -111,6 +114,7 @@ export async function handleBotRoutes(
   // -------------------------------------------------------------------------
 
   if (url.pathname === "/api/bot/live-signals/status" && req.method === "GET") {
+    res.setHeader("Cache-Control", "public, max-age=20, stale-while-revalidate=60");
     res.writeHead(200);
     res.end(
       JSON.stringify({
@@ -146,6 +150,7 @@ export async function handleBotRoutes(
       action,
     });
 
+    res.setHeader("Cache-Control", "public, max-age=15, stale-while-revalidate=45");
     res.writeHead(200);
     res.end(
       JSON.stringify({
@@ -163,6 +168,7 @@ export async function handleBotRoutes(
 
   if (url.pathname === "/api/bot/paper-runner" && req.method === "GET") {
     const bots = getBackendManagedPaperBotList();
+    res.setHeader("Cache-Control", "public, max-age=10, stale-while-revalidate=30");
     res.writeHead(200);
     res.end(
       JSON.stringify({
@@ -183,6 +189,7 @@ export async function handleBotRoutes(
       res.end(JSON.stringify({ error: "Bot not found" }));
       return;
     }
+    res.setHeader("Cache-Control", "public, max-age=10, stale-while-revalidate=30");
     res.writeHead(200);
     res.end(JSON.stringify({ enabled: ENABLE_BACKEND_PAPER_CRYPTO_RUNNER, bot }));
     return;

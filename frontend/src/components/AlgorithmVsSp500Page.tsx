@@ -5,6 +5,7 @@ import BacktestChart from "./BacktestChart";
 import TradeTable from "./TradeTable";
 import type { BacktestTrade } from "../lib/backtest";
 import { runBacktest } from "../lib/backtest";
+import { apiFetch } from "../lib/apiFetch";
 
 type FormState = {
   symbols: string;
@@ -97,7 +98,7 @@ export default function AlgorithmVsSp500Page({ apiPrefix }: { apiPrefix: string 
       timeframe: "1Day",
       range,
     });
-    const response = await fetch(`${apiPrefix}/bars?${params.toString()}`);
+    const response = await apiFetch(`${apiPrefix}/bars?${params.toString()}`);
     const payload = (await response.json().catch(() => ({}))) as BarsApiPayload;
     if (!response.ok) {
       throw new Error(payload.error ?? `Failed to fetch ${normalizedSymbol} bars (HTTP ${response.status}).`);

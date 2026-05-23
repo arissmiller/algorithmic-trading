@@ -2,6 +2,7 @@ import { ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import BacktestChart, { BacktestChartHorizontalSegment } from "./BacktestChart";
 import type { Bar, EarningsEvent } from "../lib/signals";
 import type { BacktestTrade } from "../lib/backtest";
+import { apiFetch } from "../lib/apiFetch";
 import {
   OrbBacktestResult,
   OrbBacktestTrade,
@@ -288,7 +289,7 @@ export default function StockDaytradeBacktestPage({ apiPrefix }: { apiPrefix: st
       symbol: normalizedSymbol,
       range: "2y",
     });
-    const response = await fetch(`${apiPrefix}/bars?${params.toString()}`);
+    const response = await apiFetch(`${apiPrefix}/bars?${params.toString()}`);
     const body = (await response.json().catch(() => ({}))) as {
       error?: string;
       earningsEvents?: EarningsEvent[];
@@ -344,7 +345,7 @@ export default function StockDaytradeBacktestPage({ apiPrefix }: { apiPrefix: st
       endDate,
       range: rangeForStartDate(startDate),
     });
-    const response = await fetch(`${apiPrefix}/bars?${params.toString()}`);
+    const response = await apiFetch(`${apiPrefix}/bars?${params.toString()}`);
     const body = (await response.json().catch(() => ({}))) as {
       error?: string;
       bars?: Bar[];

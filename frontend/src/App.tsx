@@ -15,6 +15,7 @@ import { runCryptoTrendConfidenceBacktest } from "./lib/cryptoTrendConfidenceBac
 import { runCryptoShortSelloffBacktest } from "./lib/cryptoShortSelloffBacktest";
 import { Bar, EarningsEvent } from "./lib/signals";
 import { analyzeMarketCondition } from "./lib/marketConditions";
+import { apiFetch } from "./lib/apiFetch";
 
 const STOCK_BENCHMARK_SYMBOL = "^GSPC";
 const CRYPTO_BENCHMARK_SYMBOL = "BTC/USD";
@@ -107,7 +108,7 @@ export default function App() {
   useEffect(() => {
     async function check() {
       try {
-        const r = await fetch(`${API_PREFIX}/health`);
+        const r = await apiFetch(`${API_PREFIX}/health`);
         setServerOnline(r.ok);
       } catch {
         setServerOnline(false);
@@ -162,7 +163,7 @@ export default function App() {
         params.set("startDate", options.startDate);
         params.set("endDate", options.endDate);
       }
-      const res = await fetch(`${API_PREFIX}/bars?${params.toString()}`);
+      const res = await apiFetch(`${API_PREFIX}/bars?${params.toString()}`);
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         throw new Error(body.error ?? `HTTP ${res.status}`);
@@ -737,7 +738,7 @@ function CapitalManagementPage() {
     }
 
     try {
-      const res = await fetch(`${API_PREFIX}/alpaca/account`);
+      const res = await apiFetch(`${API_PREFIX}/alpaca/account`);
       const body = (await res.json().catch(() => ({}))) as {
         error?: string;
       } & Partial<AlpacaAccountSnapshot>;

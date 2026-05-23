@@ -118,15 +118,15 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  if (isBotPath) {
-    await handleBotRoutes(req, res, url, apiConnectionStore);
-    return;
-  }
-
   const clientIp = getClientIp(req);
   if (isRateLimited(clientIp)) {
     res.writeHead(429);
     res.end(JSON.stringify({ error: "Too many requests" }));
+    return;
+  }
+
+  if (isBotPath) {
+    await handleBotRoutes(req, res, url, apiConnectionStore);
     return;
   }
 

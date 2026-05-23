@@ -260,7 +260,7 @@ Before exposing this service publicly, set these Railway environment variables:
 - `BACKTEST_CACHE_DATABASE_URL`:
 	- Optional PostgreSQL connection string for persistent Alpaca bar caching used by `/api/bars`.
 	- Recommended: point this at a second Railway Postgres instance dedicated to market-data cache.
-	- If unset, bar caching is disabled and requests go directly to Alpaca.
+	- If unset, `/api/bars` still uses in-memory cache per service instance (non-persistent); Postgres adds persistence across restarts/instances.
 - `BACKTEST_CACHE_TABLE`:
 	- Optional table name for bar cache records.
 	- Default: `backtest_bars_cache`
@@ -273,6 +273,15 @@ Before exposing this service publicly, set these Railway environment variables:
 - `BAR_CACHE_TTL_15_MIN_MS`:
 	- Optional cache TTL for 15-minute (`15Min`) day-sliced bars.
 	- Default: `86400000` (24 hours)
+- `BAR_CACHE_TTL_5_MIN_MS`:
+	- Optional cache TTL for 5-minute (`5Min`) day-sliced bars.
+	- Default: `43200000` (12 hours)
+- `MARKET_DATA_MAX_CONCURRENT_REQUESTS`:
+	- Max concurrent outbound upstream market-data/account requests per service instance.
+	- Default: `4`
+- `MARKET_DATA_MIN_INTERVAL_MS`:
+	- Minimum spacing between outbound upstream request starts (milliseconds), used to smooth bursts.
+	- Default: `120`
 - `SIGNAL_DISPATCH_URL`:
 	- Optional HTTP endpoint to receive generated watchlist signals.
 	- Example: `https://dispatch-service.up.railway.app/api/dispatch/signal`
@@ -300,6 +309,8 @@ Notes:
 - If SEC-backed persistence is unavailable, Alpha Vantage can still provide fallback earnings data.
 - `15Min` requests are intended for intraday/day-trading backtests and require `startDate` + `endDate`.
 - `15Min` bars are fetched and cached per day (`symbol + YYYY-MM-DD + timeframe`) so repeated tests on the same stocks are much faster.
+- `/api/bars` also uses in-flight request deduplication and outbound request pacing to reduce duplicate upstream calls during concurrent loads.
+- `/api/bars` and read-only `/api/bot/*` endpoints set short `Cache-Control` headers so browsers/CDNs can absorb polling traffic.
 - `/api/alpaca/*` endpoints remain read-only by design.
 - `/api/bot/*` endpoints are operator control-plane routes and can place Alpaca orders for running bots.
 

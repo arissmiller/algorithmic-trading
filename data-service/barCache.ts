@@ -28,6 +28,14 @@ const BAR_CACHE_TTL_5_MIN_MS = parsePositiveIntEnv(
   12 * 60 * 60 * 1000
 );
 
+interface MemoryBarsCacheEntry {
+  symbol: string;
+  bars: CachedApiBar[];
+  expiresAtMs: number;
+}
+
+const memoryBarsCache = new Map<string, MemoryBarsCacheEntry>();
+
 let pool: Pool | null = null;
 let setupPromise: Promise<void> | null = null;
 let setupFailed = false;
@@ -38,6 +46,11 @@ export async function getCachedBars(input: {
   range: string;
   timeframe: "1Day" | "1Hour" | "15Min" | "5Min";
 }): Promise<{ symbol: string; bars: CachedApiBar[] } | null> {
+  const memoryCached = getMemoryCachedBars(input);
+  if (memoryCached) {
+    return memoryCached;
+  }
+
   const cachePool = await getReadyPool();
   if (!cachePool) {
     return null;
@@ -71,7 +84,18 @@ export async function getCachedBars(input: {
       return null;
     }
 
-    return { symbol: row.symbol, bars };
+    const ttlMs = resolveTimeframeTtlMs(input.timeframe);
+    setMemoryCachedBars({
+      symbol: row.symbol,
+      range: input.range,
+      timeframe: input.timeframe,
+      bars,
+      ttlMs,
+    });
+    return {
+      symbol: row.symbol,
+      bars: cloneBars(bars),
+    };
   } catch (err) {
     warnCacheIssue("cache read failed", err);
     return null;
@@ -84,20 +108,21 @@ export async function upsertCachedBars(input: {
   timeframe: "1Day" | "1Hour" | "15Min" | "5Min";
   bars: CachedApiBar[];
 }): Promise<void> {
+  const ttlMs = resolveTimeframeTtlMs(input.timeframe);
+  setMemoryCachedBars({
+    symbol: input.symbol,
+    range: input.range,
+    timeframe: input.timeframe,
+    bars: input.bars,
+    ttlMs,
+  });
+
   const cachePool = await getReadyPool();
   if (!cachePool) {
     return;
   }
 
   try {
-    const ttlMs =
-      input.timeframe === "15Min"
-        ? BAR_CACHE_TTL_15_MIN_MS
-        : input.timeframe === "5Min"
-        ? BAR_CACHE_TTL_5_MIN_MS
-        : input.timeframe === "1Hour"
-        ? BAR_CACHE_TTL_1_HOUR_MS
-        : BAR_CACHE_TTL_1_DAY_MS;
     const expiresAt = new Date(Date.now() + ttlMs).toISOString();
 
     await cachePool.query(
@@ -228,6 +253,61 @@ function parsePositiveIntEnv(name: string, fallback: number): number {
     return fallback;
   }
   return Math.round(parsed);
+}
+
+function resolveTimeframeTtlMs(timeframe: "1Day" | "1Hour" | "15Min" | "5Min"): number {
+  return timeframe === "15Min"
+    ? BAR_CACHE_TTL_15_MIN_MS
+    : timeframe === "5Min"
+    ? BAR_CACHE_TTL_5_MIN_MS
+    : timeframe === "1Hour"
+    ? BAR_CACHE_TTL_1_HOUR_MS
+    : BAR_CACHE_TTL_1_DAY_MS;
+}
+
+function setMemoryCachedBars(input: {
+  symbol: string;
+  range: string;
+  timeframe: "1Day" | "1Hour" | "15Min" | "5Min";
+  bars: CachedApiBar[];
+  ttlMs: number;
+}): void {
+  const cacheKey = buildCacheKey(input.symbol, input.range, input.timeframe);
+  memoryBarsCache.set(cacheKey, {
+    symbol: input.symbol,
+    bars: cloneBars(input.bars),
+    expiresAtMs: Date.now() + input.ttlMs,
+  });
+}
+
+function getMemoryCachedBars(input: {
+  symbol: string;
+  range: string;
+  timeframe: "1Day" | "1Hour" | "15Min" | "5Min";
+}): { symbol: string; bars: CachedApiBar[] } | null {
+  const cacheKey = buildCacheKey(input.symbol, input.range, input.timeframe);
+  const cached = memoryBarsCache.get(cacheKey);
+  if (!cached) return null;
+  if (cached.expiresAtMs <= Date.now()) {
+    memoryBarsCache.delete(cacheKey);
+    return null;
+  }
+  return {
+    symbol: cached.symbol,
+    bars: cloneBars(cached.bars),
+  };
+}
+
+function buildCacheKey(
+  symbol: string,
+  range: string,
+  timeframe: "1Day" | "1Hour" | "15Min" | "5Min"
+): string {
+  return `${symbol}::${range}::${timeframe}`;
+}
+
+function cloneBars(bars: CachedApiBar[]): CachedApiBar[] {
+  return bars.map((bar) => ({ ...bar }));
 }
 
 function trimToNull(value: string | undefined): string | null {

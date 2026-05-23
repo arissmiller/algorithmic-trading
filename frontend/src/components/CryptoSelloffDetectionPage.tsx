@@ -9,6 +9,7 @@ import {
   runCryptoSelloffDetectionBacktest,
 } from "../lib/cryptoSelloffDetectionBacktest";
 import type { Bar, SignalWeight } from "../lib/signals";
+import { apiFetch } from "../lib/apiFetch";
 
 type StrategyProfile = {
   key: string;
@@ -71,7 +72,7 @@ export default function CryptoSelloffDetectionPage({ apiPrefix }: { apiPrefix: s
       setProfilesLoading(true);
       setProfilesError(null);
       try {
-        const response = await fetch(`${apiPrefix}/bot/strategy-profiles`);
+        const response = await apiFetch(`${apiPrefix}/bot/strategy-profiles`);
         const body = (await response.json().catch(() => ({}))) as ProfilesPayload & {
           error?: string;
         };
@@ -189,7 +190,7 @@ export default function CryptoSelloffDetectionPage({ apiPrefix }: { apiPrefix: s
       const cacheKey = `${apiPrefix}::${symbol}::${form.timeframe}::${range}`;
       let bars = barsCacheRef.current[cacheKey];
       if (!bars) {
-        const barsResponse = await fetch(`${apiPrefix}/bars?${params.toString()}`);
+        const barsResponse = await apiFetch(`${apiPrefix}/bars?${params.toString()}`);
         const barsBody = (await barsResponse.json().catch(() => ({}))) as {
           error?: string;
           bars?: Bar[];
