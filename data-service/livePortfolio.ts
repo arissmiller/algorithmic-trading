@@ -38,6 +38,8 @@ export interface LivePortfolioWhitepaper {
 export interface LivePortfolioConfig {
   key: string;
   name: string;
+  description?: string;
+  selectionRationale?: string;
   allocations: LivePortfolioAllocation[];
   whitepaper?: LivePortfolioWhitepaper;
   launchedAt?: string;
@@ -75,6 +77,8 @@ export interface LivePortfolioHoldingSnapshot {
 export interface LivePortfolioSnapshot {
   portfolioKey: string;
   portfolioName: string;
+  description: string | null;
+  selectionRationale: string | null;
   whitepaper: LivePortfolioWhitepaper | null;
   launchedAt: string | null;
   algorithm: "buy_over_time";
@@ -89,6 +93,8 @@ export interface LivePortfolioSnapshot {
 interface PersistedPortfolioConfig {
   key?: unknown;
   name?: unknown;
+  description?: unknown;
+  selectionRationale?: unknown;
   allocations?: unknown;
   whitepaper?: unknown;
   launchedAt?: unknown;
@@ -104,6 +110,8 @@ interface PersistedPortfolioState {
   // Legacy single-portfolio shape support.
   key?: unknown;
   name?: unknown;
+  description?: unknown;
+  selectionRationale?: unknown;
   allocations?: unknown;
   whitepaper?: unknown;
   launchedAt?: unknown;
@@ -146,6 +154,8 @@ export async function updateLivePortfolioConfig(
 
   const portfolio = resolvePortfolioConfig(portfolioKey);
   const hasName = Object.prototype.hasOwnProperty.call(input, "name");
+  const hasDescription = Object.prototype.hasOwnProperty.call(input, "description");
+  const hasSelectionRationale = Object.prototype.hasOwnProperty.call(input, "selectionRationale");
   const hasAllocations = Object.prototype.hasOwnProperty.call(input, "allocations");
   const hasWhitepaper = Object.prototype.hasOwnProperty.call(input, "whitepaper");
   const hasLaunchedAt = Object.prototype.hasOwnProperty.call(input, "launchedAt");
@@ -154,6 +164,8 @@ export async function updateLivePortfolioConfig(
 
   if (
     !hasName &&
+    !hasDescription &&
+    !hasSelectionRationale &&
     !hasAllocations &&
     !hasWhitepaper &&
     !hasLaunchedAt &&
@@ -161,11 +173,17 @@ export async function updateLivePortfolioConfig(
     !hasSellThreshold
   ) {
     throw new Error(
-      "Provide at least one of name, allocations, whitepaper, launchedAt, buyThreshold, or sellThreshold."
+      "Provide at least one of name, description, selectionRationale, allocations, whitepaper, launchedAt, buyThreshold, or sellThreshold."
     );
   }
 
   const name = hasName ? parsePortfolioName(input.name) : portfolio.name;
+  const description = hasDescription
+    ? parseOptionalPortfolioDescription(input.description)
+    : portfolio.description;
+  const selectionRationale = hasSelectionRationale
+    ? parseOptionalPortfolioSelectionRationale(input.selectionRationale)
+    : portfolio.selectionRationale;
   const allocations = hasAllocations
     ? parseAllocationsInput(input.allocations)
     : portfolio.allocations;
@@ -188,6 +206,8 @@ export async function updateLivePortfolioConfig(
   const nextPortfolio: LivePortfolioConfig = {
     key: portfolio.key,
     name,
+    ...(description ? { description } : {}),
+    ...(selectionRationale ? { selectionRationale } : {}),
     allocations,
     ...(whitepaper ? { whitepaper } : {}),
     ...(launchedAt ? { launchedAt } : {}),
@@ -285,6 +305,8 @@ export async function getLivePortfolioSnapshot(portfolioKey?: string): Promise<L
   const snapshot: LivePortfolioSnapshot = {
     portfolioKey: portfolio.key,
     portfolioName: portfolio.name,
+    description: portfolio.description ?? null,
+    selectionRationale: portfolio.selectionRationale ?? null,
     whitepaper: portfolio.whitepaper ? cloneWhitepaper(portfolio.whitepaper) : null,
     launchedAt: portfolio.launchedAt ?? null,
     algorithm: "buy_over_time",
@@ -428,11 +450,15 @@ function normalizePersistedState(raw: PersistedPortfolioState): LivePortfolioSta
   const updatedAt = parseOptionalIsoTimestamp(raw.updatedAt, fallbackPortfolio.updatedAt);
   const name = parseOptionalPortfolioName(raw.name, fallbackPortfolio.name);
   const derivedDefaultKey = parseOptionalPortfolioKey(raw.key, slugifyPortfolioKey(name));
+  const description = parseOptionalPortfolioDescription(raw.description);
+  const selectionRationale = parseOptionalPortfolioSelectionRationale(raw.selectionRationale);
   const whitepaper = parseOptionalWhitepaper(raw.whitepaper);
   const launchedAt = parseOptionalPortfolioLaunchDate(raw.launchedAt);
   const portfolio: LivePortfolioConfig = {
     key: derivedDefaultKey,
     name,
+    ...(description ? { description } : {}),
+    ...(selectionRationale ? { selectionRationale } : {}),
     allocations,
     ...(whitepaper ? { whitepaper } : {}),
     ...(launchedAt ? { launchedAt } : {}),
@@ -473,6 +499,8 @@ function parsePersistedPortfolios(
     const allocations = Object.prototype.hasOwnProperty.call(entry, "allocations")
       ? parseAllocationsInput(entry.allocations)
       : fallbackPortfolio.allocations;
+    const description = parseOptionalPortfolioDescription(entry.description);
+    const selectionRationale = parseOptionalPortfolioSelectionRationale(entry.selectionRationale);
     const whitepaper = parseOptionalWhitepaper(entry.whitepaper);
     const launchedAt = parseOptionalPortfolioLaunchDate(entry.launchedAt);
     const buyThreshold = parseOptionalThreshold(entry.buyThreshold, fallbackPortfolio.buyThreshold);
@@ -487,6 +515,8 @@ function parsePersistedPortfolios(
     return {
       key,
       name,
+      ...(description ? { description } : {}),
+      ...(selectionRationale ? { selectionRationale } : {}),
       allocations,
       ...(whitepaper ? { whitepaper } : {}),
       ...(launchedAt ? { launchedAt } : {}),
@@ -718,6 +748,31 @@ function parseOptionalWhitepaperDisclosure(value: unknown): string | undefined {
   return trimmed;
 }
 
+function parseOptionalPortfolioDescription(value: unknown): string | undefined {
+  return parseOptionalPortfolioNarrative(value, "description", 600);
+}
+
+function parseOptionalPortfolioSelectionRationale(value: unknown): string | undefined {
+  return parseOptionalPortfolioNarrative(value, "selectionRationale", 900);
+}
+
+function parseOptionalPortfolioNarrative(
+  value: unknown,
+  fieldName: string,
+  maxLength: number
+): string | undefined {
+  if (value == null) return undefined;
+  if (typeof value !== "string") {
+    throw new Error(`${fieldName} must be a string when provided.`);
+  }
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  if (trimmed.length > maxLength) {
+    throw new Error(`${fieldName} must be ${maxLength} characters or fewer.`);
+  }
+  return trimmed;
+}
+
 function parsePortfolioName(value: unknown): string {
   if (typeof value !== "string") {
     throw new Error("name must be a string.");
@@ -837,6 +892,8 @@ function clonePortfolioConfig(config: LivePortfolioConfig): LivePortfolioConfig 
   return {
     key: config.key,
     name: config.name,
+    ...(config.description ? { description: config.description } : {}),
+    ...(config.selectionRationale ? { selectionRationale: config.selectionRationale } : {}),
     allocations: config.allocations.map((allocation) => ({ ...allocation })),
     ...(config.whitepaper ? { whitepaper: cloneWhitepaper(config.whitepaper) } : {}),
     ...(config.launchedAt ? { launchedAt: config.launchedAt } : {}),
@@ -859,6 +916,8 @@ function cloneSnapshot(snapshot: LivePortfolioSnapshot): LivePortfolioSnapshot {
   return {
     portfolioKey: snapshot.portfolioKey,
     portfolioName: snapshot.portfolioName,
+    description: snapshot.description,
+    selectionRationale: snapshot.selectionRationale,
     whitepaper: snapshot.whitepaper ? cloneWhitepaper(snapshot.whitepaper) : null,
     launchedAt: snapshot.launchedAt,
     algorithm: snapshot.algorithm,

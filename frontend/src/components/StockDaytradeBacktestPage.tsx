@@ -475,10 +475,10 @@ export default function StockDaytradeBacktestPage({ apiPrefix }: { apiPrefix: st
   return (
     <div className="flex h-full overflow-hidden">
       <aside className="w-80 flex-shrink-0 border-r border-border overflow-y-auto p-4 space-y-3">
-        <p className="text-[11px] uppercase tracking-widest text-text-secondary font-semibold">
+        <p className="text-[12px] uppercase tracking-widest text-text-secondary font-semibold">
           Tech Earnings ORB
         </p>
-        <p className="text-[11px] text-text-secondary leading-relaxed">
+        <p className="text-[12px] text-text-secondary leading-relaxed">
           Enter one or more symbols, select checklist dates, then run ORB windows and inspect a chart for each generated trade.
         </p>
 
@@ -529,34 +529,34 @@ export default function StockDaytradeBacktestPage({ apiPrefix }: { apiPrefix: st
 
           <div className="rounded border border-border bg-surface-3 px-2.5 py-2">
             <div className="flex items-center justify-between gap-2">
-              <p className="text-[10px] uppercase tracking-wide text-text-secondary">Date Checklist</p>
-              <p className="text-[10px] text-text-secondary">
+              <p className="text-[11px] uppercase tracking-wide text-text-secondary">Date Checklist</p>
+              <p className="text-[11px] text-text-secondary">
                 {selectedChecklistKeys.length}/{checklistItems.length} selected
               </p>
             </div>
 
             {checklistLoading ? (
-              <p className="mt-2 text-[11px] text-text-secondary">Loading checklist dates...</p>
+              <p className="mt-2 text-[12px] text-text-secondary">Loading checklist dates...</p>
             ) : !hasChecklistDates ? (
-              <p className="mt-2 text-[11px] text-text-secondary">
+              <p className="mt-2 text-[12px] text-text-secondary">
                 {checklistError ?? "No dates available for these symbols."}
               </p>
             ) : (
               <>
                 {checklistError ? (
-                  <p className="mt-2 text-[10px] text-sell">{checklistError}</p>
+                  <p className="mt-2 text-[11px] text-sell">{checklistError}</p>
                 ) : null}
                 {hasAnyAvailableFallback ? (
-                  <p className="mt-2 text-[10px] text-text-secondary">
+                  <p className="mt-2 text-[11px] text-text-secondary">
                     Some symbols had no detected earnings dates. Those symbols use all available bar dates.
                   </p>
                 ) : hasAnyFallbackEarnings ? (
-                  <p className="mt-2 text-[10px] text-text-secondary">
+                  <p className="mt-2 text-[11px] text-text-secondary">
                     Some symbols are using built-in earnings date lists.
                   </p>
                 ) : null}
                 {checklistItems.length > MAX_AUTO_SELECTED_DATES ? (
-                  <p className="mt-1 text-[10px] text-text-secondary">
+                  <p className="mt-1 text-[11px] text-text-secondary">
                     Auto-selected the most recent {MAX_AUTO_SELECTED_DATES} windows. Use Select All for the full list.
                   </p>
                 ) : null}
@@ -564,14 +564,14 @@ export default function StockDaytradeBacktestPage({ apiPrefix }: { apiPrefix: st
                   <button
                     type="button"
                     onClick={() => setSelectedChecklistKeys(checklistItems.map((item) => item.key))}
-                    className="rounded border border-border bg-surface-2 px-2 py-1 text-[10px] text-text-secondary hover:text-text-primary"
+                    className="rounded border border-border bg-surface-2 px-2 py-1 text-[11px] text-text-secondary hover:text-text-primary"
                   >
                     Select All
                   </button>
                   <button
                     type="button"
                     onClick={() => setSelectedChecklistKeys([])}
-                    className="rounded border border-border bg-surface-2 px-2 py-1 text-[10px] text-text-secondary hover:text-text-primary"
+                    className="rounded border border-border bg-surface-2 px-2 py-1 text-[11px] text-text-secondary hover:text-text-primary"
                   >
                     Clear All
                   </button>
@@ -579,7 +579,7 @@ export default function StockDaytradeBacktestPage({ apiPrefix }: { apiPrefix: st
 
                 <div className="mt-2 max-h-56 overflow-y-auto rounded border border-border/60 bg-surface-2 p-2">
                   {checklistItems.map((item) => (
-                    <label key={item.key} className="mb-1 flex items-center gap-2 text-[11px] text-text-primary last:mb-0">
+                    <label key={item.key} className="mb-1 flex items-center gap-2 text-[12px] text-text-primary last:mb-0">
                       <input
                         type="checkbox"
                         checked={selectedChecklistKeys.includes(item.key)}
@@ -687,7 +687,7 @@ export default function StockDaytradeBacktestPage({ apiPrefix }: { apiPrefix: st
       </aside>
 
       <section className="flex-1 min-w-0 flex flex-col">
-        <div className="shrink-0 px-4 py-2 border-b border-border/70 text-[11px] uppercase tracking-widest text-text-secondary font-semibold">
+        <div className="shrink-0 px-4 py-2 border-b border-border/70 text-[12px] uppercase tracking-widest text-text-secondary font-semibold">
           Results
         </div>
 
@@ -809,7 +809,7 @@ export default function StockDaytradeBacktestPage({ apiPrefix }: { apiPrefix: st
               </>
             ) : null}
 
-            <div className="px-4 py-3 border-b border-border text-[11px] uppercase tracking-widest text-text-secondary font-semibold">
+            <div className="px-4 py-3 border-b border-border text-[12px] uppercase tracking-widest text-text-secondary font-semibold">
               Trade Charts ({tradeChartCards.length})
             </div>
             {tradeChartCards.length === 0 ? (
@@ -818,7 +818,7 @@ export default function StockDaytradeBacktestPage({ apiPrefix }: { apiPrefix: st
               <div className="p-4 grid grid-cols-1 xl:grid-cols-2 gap-4">
                 {tradeChartCards.map((card) => (
                   <div key={card.id} className="rounded border border-border bg-surface-1 overflow-hidden">
-                    <div className="px-3 py-2 border-b border-border/60 flex items-center gap-2 text-[11px]">
+                    <div className="px-3 py-2 border-b border-border/60 flex items-center gap-2 text-[12px]">
                       <span className="font-semibold text-text-primary">{card.symbol}</span>
                       <span className="text-text-secondary">{card.runLabel}</span>
                       <span className={`ml-auto font-semibold ${card.trade.side === "long" ? "text-buy" : "text-sell"}`}>
@@ -838,7 +838,7 @@ export default function StockDaytradeBacktestPage({ apiPrefix }: { apiPrefix: st
                         movingAverageDays={[7]}
                       />
                     </div>
-                    <div className="px-3 py-2 text-[10px] text-text-secondary border-t border-border/60">
+                    <div className="px-3 py-2 text-[11px] text-text-secondary border-t border-border/60">
                       Entry {formatUsd(card.trade.entryPrice)} · Stop {formatUsd(card.trade.stopPrice)} · Target {formatUsd(card.trade.targetPrice)} · Exit {formatUsd(card.trade.exitPrice)}
                     </div>
                   </div>
@@ -988,7 +988,7 @@ function formatSigned(value: number): string {
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
     <label className="block">
-      <span className="mb-1 block text-[10px] text-text-secondary">{label}</span>
+      <span className="mb-1 block text-[11px] text-text-secondary">{label}</span>
       {children}
     </label>
   );
@@ -1007,9 +1007,9 @@ function StatCard({
 }) {
   return (
     <div className="rounded border border-border bg-surface-1 px-3 py-2">
-      <p className="text-[10px] text-text-secondary">{label}</p>
+      <p className="text-[11px] text-text-secondary">{label}</p>
       <p className={`text-sm font-semibold tabular-nums ${valueClassName}`}>{value}</p>
-      <p className="text-[10px] text-text-secondary">{sub}</p>
+      <p className="text-[11px] text-text-secondary">{sub}</p>
     </div>
   );
 }

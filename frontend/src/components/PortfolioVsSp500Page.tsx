@@ -308,27 +308,27 @@ export default function PortfolioVsSp500Page({
   return (
     <div className="flex h-full overflow-hidden">
       <aside className="w-80 flex-shrink-0 overflow-y-auto border-r border-border p-4 space-y-3">
-        <p className="text-[11px] uppercase tracking-widest text-text-secondary font-semibold">
+        <p className="text-[12px] uppercase tracking-widest text-text-secondary font-semibold">
           {pageTitle}
         </p>
-        <p className="text-[11px] text-text-secondary leading-relaxed">
+        <p className="text-[12px] text-text-secondary leading-relaxed">
           {pageDescription}
         </p>
 
         {hasFixedAllocations ? (
           <Field label="Portfolio Weights (Live)">
             <div className="rounded border border-border bg-surface-2 px-2.5 py-2">
-              <p className="text-[10px] text-text-secondary">
+              <p className="text-[11px] text-text-secondary">
                 {fixedAllocationsSourceLabel ?? "Using backend-controlled allocations."}
               </p>
-              <pre className="mt-1 max-h-36 overflow-auto whitespace-pre-wrap break-words text-[11px] text-text-primary">
+              <pre className="mt-1 max-h-36 overflow-auto whitespace-pre-wrap break-words text-[12px] text-text-primary">
                 {effectiveAllocationsText || "No allocations loaded from live portfolio."}
               </pre>
             </div>
             {allocationPreview.error ? (
-              <p className="mt-1 text-[10px] text-sell">{allocationPreview.error}</p>
+              <p className="mt-1 text-[11px] text-sell">{allocationPreview.error}</p>
             ) : allocationPreview.parsed ? (
-              <p className="mt-1 text-[10px] text-text-secondary">
+              <p className="mt-1 text-[11px] text-text-secondary">
                 {allocationPreview.parsed.allocations.length} symbols, requested total{" "}
                 {allocationPreview.parsed.totalRequestedWeightPct.toFixed(2)}%
                 {Math.abs(allocationPreview.parsed.totalRequestedWeightPct - 100) > 0.001
@@ -348,13 +348,13 @@ export default function PortfolioVsSp500Page({
               }
               placeholder={EXAMPLE_ALLOCATIONS}
             />
-            <p className="mt-1 text-[10px] text-text-secondary">
+            <p className="mt-1 text-[11px] text-text-secondary">
               One per line. Format: <span className="font-mono">SYMBOL: PERCENT</span>
             </p>
             {allocationPreview.error ? (
-              <p className="mt-1 text-[10px] text-sell">{allocationPreview.error}</p>
+              <p className="mt-1 text-[11px] text-sell">{allocationPreview.error}</p>
             ) : allocationPreview.parsed ? (
-              <p className="mt-1 text-[10px] text-text-secondary">
+              <p className="mt-1 text-[11px] text-text-secondary">
                 {allocationPreview.parsed.allocations.length} symbols, requested total{" "}
                 {allocationPreview.parsed.totalRequestedWeightPct.toFixed(2)}%
                 {Math.abs(allocationPreview.parsed.totalRequestedWeightPct - 100) > 0.001
@@ -375,13 +375,13 @@ export default function PortfolioVsSp500Page({
             }
             placeholder={EXAMPLE_BENCHMARKS}
           />
-          <p className="mt-1 text-[10px] text-text-secondary">
+          <p className="mt-1 text-[11px] text-text-secondary">
             One per line or comma-separated. Example: <span className="font-mono">^DJI, ^GSPC</span>
           </p>
           {benchmarkPreview.error ? (
-            <p className="mt-1 text-[10px] text-sell">{benchmarkPreview.error}</p>
+            <p className="mt-1 text-[11px] text-sell">{benchmarkPreview.error}</p>
           ) : (
-            <p className="mt-1 text-[10px] text-text-secondary">
+            <p className="mt-1 text-[11px] text-text-secondary">
               {benchmarkPreview.symbols.length} benchmark
               {benchmarkPreview.symbols.length === 1 ? "" : "s"}
             </p>
@@ -430,7 +430,7 @@ export default function PortfolioVsSp500Page({
       </aside>
 
       <div className="flex flex-1 min-w-0 flex-col">
-        <div className="shrink-0 border-b border-border/70 px-4 py-2 text-[11px] uppercase tracking-widest text-text-secondary font-semibold">
+        <div className="shrink-0 border-b border-border/70 px-4 py-2 text-[12px] uppercase tracking-widest text-text-secondary font-semibold">
           Results
         </div>
 
@@ -504,7 +504,7 @@ export default function PortfolioVsSp500Page({
             {result.benchmarks.length > 0 ? (
               <section className="border-b border-border/60 bg-surface-1 px-4 py-4">
                 <div className="mb-3 flex flex-wrap items-center gap-2">
-                  <p className="text-[11px] uppercase tracking-widest text-text-secondary font-semibold">
+                  <p className="text-[12px] uppercase tracking-widest text-text-secondary font-semibold">
                     Equity Curve
                   </p>
                 </div>
@@ -513,7 +513,7 @@ export default function PortfolioVsSp500Page({
                   benchmarks={result.benchmarks}
                   initialValue={result.portfolioInitialValue}
                 />
-                <div className="mt-2 flex flex-wrap gap-4 text-[10px] text-text-secondary">
+                <div className="mt-2 flex flex-wrap gap-4 text-[11px] text-text-secondary">
                   <span className="flex items-center gap-1">
                     <span className="inline-block w-3 border-t border-accent" />
                     Portfolio
@@ -539,12 +539,12 @@ export default function PortfolioVsSp500Page({
             ) : null}
 
             <section className="border-b border-border/60 px-4 py-4">
-              <p className="mb-3 text-[11px] uppercase tracking-widest text-text-secondary font-semibold">
+              <p className="mb-3 text-[12px] uppercase tracking-widest text-text-secondary font-semibold">
                 Benchmark Comparisons
               </p>
               <div className="overflow-auto rounded border border-border">
                 <table className="w-full text-xs">
-                  <thead className="bg-surface-1 text-[10px] uppercase tracking-wide text-text-secondary">
+                  <thead className="bg-surface-1 text-[11px] uppercase tracking-wide text-text-secondary">
                     <tr>
                       <th className="px-3 py-2 text-left font-medium">Benchmark</th>
                       <th className="px-3 py-2 text-right font-medium">Return</th>
@@ -589,12 +589,12 @@ export default function PortfolioVsSp500Page({
             </section>
 
             <section className="px-4 py-4">
-              <p className="mb-3 text-[11px] uppercase tracking-widest text-text-secondary font-semibold">
+              <p className="mb-3 text-[12px] uppercase tracking-widest text-text-secondary font-semibold">
                 Holdings Breakdown
               </p>
               <div className="overflow-auto rounded border border-border">
                 <table className="w-full text-xs">
-                  <thead className="bg-surface-1 text-[10px] uppercase tracking-wide text-text-secondary">
+                  <thead className="bg-surface-1 text-[11px] uppercase tracking-wide text-text-secondary">
                     <tr>
                       <th className="px-3 py-2 text-left font-medium">Symbol</th>
                       <th className="px-3 py-2 text-right font-medium">Requested Weight</th>
@@ -647,7 +647,7 @@ export default function PortfolioVsSp500Page({
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div>
-      <label className="mb-1 block text-[11px] text-text-secondary">{label}</label>
+      <label className="mb-1 block text-[12px] text-text-secondary">{label}</label>
       {children}
     </div>
   );
@@ -666,9 +666,9 @@ function SummaryTile({
 }) {
   return (
     <div className="rounded border border-border bg-surface px-2.5 py-2">
-      <p className="text-[10px] text-text-secondary">{label}</p>
+      <p className="text-[11px] text-text-secondary">{label}</p>
       <p className={`text-sm font-semibold tabular-nums ${colorClass}`}>{value}</p>
-      {sub ? <p className="mt-0.5 text-[10px] text-text-secondary">{sub}</p> : null}
+      {sub ? <p className="mt-0.5 text-[11px] text-text-secondary">{sub}</p> : null}
     </div>
   );
 }
@@ -837,11 +837,11 @@ function PortfolioComparisonCurve({
   return (
     <div className="rounded border border-border bg-surface-2 p-2">
       <div ref={chartContainerRef} className="h-56 w-full" />
-      <div className="mt-1 flex justify-between text-[10px] text-text-secondary">
+      <div className="mt-1 flex justify-between text-[11px] text-text-secondary">
         <span>{chartData.firstDate}</span>
         <span>{chartData.lastDate}</span>
       </div>
-      <div className="mt-0.5 flex justify-between text-[10px] text-text-secondary">
+      <div className="mt-0.5 flex justify-between text-[11px] text-text-secondary">
         <span>Min: {formatUsd(chartData.minValue)}</span>
         <span>Max: {formatUsd(chartData.maxValue)}</span>
       </div>

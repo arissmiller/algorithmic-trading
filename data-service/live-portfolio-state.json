@@ -4,6 +4,8 @@
     {
       "key": "advanced_industrials_automation",
       "name": "Advanced Industrials and Automation Portfolio",
+      "description": "A live, theme-driven equity portfolio focused on advanced industrials, automation, and the infrastructure behind modern AI-led manufacturing expansion.",
+      "selectionRationale": "Holdings were chosen to represent the full stack: broad market ballast (VOO, VXUS), semiconductor design and fabrication (NVDA, TSM, ASML, AMAT, MU), industrial power and automation leaders (ETN, ROK, PH, GEV), and critical enablers such as gases, materials, and data-center infrastructure (LIN, APD, FCX, VRT). Position sizes favor larger, more liquid leaders while preserving targeted exposure to higher-upside satellites.",
       "launchedAt": "2026-05-22T00:00:00.000Z",
       "whitepaper": {
         "title": "Advanced Industrials and Automation Portfolio Whitepaper (AI-Generated)",
@@ -122,6 +124,8 @@
     {
       "key": "enterprise_software",
       "name": "Enterprise Software Portfolio",
+      "description": "A live portfolio centered on enterprise software platforms that power cloud operations, developer workflows, data infrastructure, automation, and cybersecurity.",
+      "selectionRationale": "Selections prioritize durable software categories with recurring-revenue models and mission-critical adoption: cloud and productivity scale (MSFT), workflow and IT platforms (NOW), developer collaboration and DevSecOps (GTLB, TEAM), data/observability layers (SNOW, ESTC, DDOG), and security/identity controls (OKTA, PANW, CRWD). Additional weights in engagement and automation vendors (TWLO, PATH, ADBE, VMW) broaden exposure across core enterprise software budgets.",
       "launchedAt": "2026-05-22T00:00:00.000Z",
       "whitepaper": {
         "title": "Enterprise Software Portfolio Whitepaper (AI-Generated)",

@@ -128,12 +128,12 @@ export default function RunQueueBuilder({
 
   return (
     <div className="flex flex-col gap-3 p-4 h-full overflow-y-auto">
-      <p className="text-[11px] uppercase tracking-widest text-text-secondary font-semibold">
+      <p className="text-[12px] uppercase tracking-widest text-text-secondary font-semibold">
         Run Queue
       </p>
 
       {runs.length === 0 && !adding && (
-        <p className="text-[11px] text-text-secondary leading-relaxed">
+        <p className="text-[12px] text-text-secondary leading-relaxed">
           No runs added yet. Each run has a preset, symbol, start date, and duration.
         </p>
       )}
@@ -147,21 +147,21 @@ export default function RunQueueBuilder({
         return (
           <div key={run.id} className="rounded border border-border bg-surface-2 px-3 py-2.5">
             <div className="flex items-center justify-between mb-1">
-              <span className="text-[10px] font-semibold uppercase tracking-wider text-text-secondary">
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-text-secondary">
                 Run {index + 1}
               </span>
               <button
                 type="button"
                 onClick={() => removeRun(run.id)}
                 disabled={running}
-                className="text-[10px] text-text-secondary hover:text-sell disabled:opacity-40"
+                className="text-[11px] text-text-secondary hover:text-sell disabled:opacity-40"
               >
                 ✕
               </button>
             </div>
             <p className="text-sm font-semibold text-text-primary">{run.symbol}</p>
-            <p className="text-[10px] text-text-secondary">{preset?.label ?? run.presetKey}</p>
-            <p className="text-[10px] text-text-secondary tabular-nums mt-0.5">
+            <p className="text-[11px] text-text-secondary">{preset?.label ?? run.presetKey}</p>
+            <p className="text-[11px] text-text-secondary tabular-nums mt-0.5">
               {run.startDate} → {endDate} · {durationLabel(run.durationDays)} · {cadenceLabel} · ${run.totalAmount.toLocaleString()}
             </p>
           </div>
@@ -170,10 +170,10 @@ export default function RunQueueBuilder({
 
       {adding ? (
         <div className="rounded border border-accent/40 bg-accent/5 px-3 py-3 flex flex-col gap-2.5">
-          <p className="text-[11px] uppercase tracking-widest text-accent font-semibold">New Run</p>
+          <p className="text-[12px] uppercase tracking-widest text-accent font-semibold">New Run</p>
 
           <div>
-            <label className="mb-1 block text-[10px] text-text-secondary">Preset</label>
+            <label className="mb-1 block text-[11px] text-text-secondary">Preset</label>
             <select
               className={input}
               value={draft.presetKey}
@@ -192,11 +192,11 @@ export default function RunQueueBuilder({
                 </option>
               ))}
             </select>
-            <p className="mt-0.5 text-[10px] text-text-secondary">{selectedPreset.suitableFor}</p>
+            <p className="mt-0.5 text-[11px] text-text-secondary">{selectedPreset.suitableFor}</p>
           </div>
 
           <div>
-            <label className="mb-1 block text-[10px] text-text-secondary">Symbol</label>
+            <label className="mb-1 block text-[11px] text-text-secondary">Symbol</label>
             <input
               className={input}
               value={draft.symbol}
@@ -211,17 +211,17 @@ export default function RunQueueBuilder({
               placeholder={defaultSymbol}
             />
             {cryptoSymbolError ? (
-              <p className="mt-0.5 text-[10px] text-sell">{cryptoSymbolError}</p>
+              <p className="mt-0.5 text-[11px] text-sell">{cryptoSymbolError}</p>
             ) : null}
             {symbolMode === "crypto" && !cryptoSymbolError ? (
-              <p className="mt-0.5 text-[10px] text-text-secondary">
+              <p className="mt-0.5 text-[11px] text-text-secondary">
                 Crypto-only symbols. Examples: BTC, ETH, SOL, BTC/USD, ETH/USDT
               </p>
             ) : null}
           </div>
 
           <div>
-            <label className="mb-1 block text-[10px] text-text-secondary">Start Date</label>
+            <label className="mb-1 block text-[11px] text-text-secondary">Start Date</label>
             <input
               type="date"
               className={input}
@@ -231,14 +231,14 @@ export default function RunQueueBuilder({
           </div>
 
           <div>
-            <label className="mb-1 block text-[10px] text-text-secondary">Duration</label>
+            <label className="mb-1 block text-[11px] text-text-secondary">Duration</label>
             <div className="flex flex-wrap gap-1 mb-1.5">
               {DURATION_OPTIONS.map((o) => (
                 <button
                   key={o.durationDays}
                   type="button"
                   onClick={() => setDraft((d) => ({ ...d, durationDays: o.durationDays, cadenceDays: o.cadenceDays }))}
-                  className={`rounded border px-2 py-0.5 text-[10px] transition-colors ${
+                  className={`rounded border px-2 py-0.5 text-[11px] transition-colors ${
                     draft.durationDays === o.durationDays
                       ? "border-accent/60 bg-accent/10 text-accent"
                       : "border-border bg-surface-3 text-text-secondary hover:text-text-primary"
@@ -256,14 +256,14 @@ export default function RunQueueBuilder({
               onChange={(e) => patchDraft("durationDays", Math.max(1, +e.target.value))}
               placeholder="Custom days"
             />
-            <p className="mt-0.5 text-[10px] text-text-secondary">
+            <p className="mt-0.5 text-[11px] text-text-secondary">
               {durationLabel(draft.durationDays)}
             </p>
           </div>
 
           {draftUsesCadence ? (
             <div>
-              <label className="mb-1 block text-[10px] text-text-secondary">Cadence (days / tranche)</label>
+              <label className="mb-1 block text-[11px] text-text-secondary">Cadence (days / tranche)</label>
               <input
                 type="number"
                 min={1}
@@ -272,18 +272,18 @@ export default function RunQueueBuilder({
                 value={draft.cadenceDays}
                 onChange={(e) => patchDraft("cadenceDays", Math.max(1, +e.target.value))}
               />
-              <p className="mt-0.5 text-[10px] text-text-secondary">
+              <p className="mt-0.5 text-[11px] text-text-secondary">
                 ~{Math.ceil(draft.durationDays / Math.max(1, draft.cadenceDays))} tranches
               </p>
             </div>
           ) : (
-            <div className="rounded border border-border bg-surface-2 px-2.5 py-2 text-[10px] text-text-secondary">
+            <div className="rounded border border-border bg-surface-2 px-2.5 py-2 text-[11px] text-text-secondary">
               This preset is event-driven. Cadence is not used.
             </div>
           )}
 
           <div>
-            <label className="mb-1 block text-[10px] text-text-secondary">Amount ($)</label>
+            <label className="mb-1 block text-[11px] text-text-secondary">Amount ($)</label>
             <input
               type="number"
               min={100}

@@ -237,10 +237,10 @@ export default function CryptoSelloffDetectionPage({ apiPrefix }: { apiPrefix: s
   return (
     <div className="flex h-full overflow-hidden">
       <aside className="w-80 flex-shrink-0 border-r border-border overflow-y-auto p-4 space-y-3">
-        <p className="text-[11px] uppercase tracking-widest text-text-secondary font-semibold">
+        <p className="text-[12px] uppercase tracking-widest text-text-secondary font-semibold">
           Crypto Selloff Detection
         </p>
-        <p className="text-[11px] text-text-secondary leading-relaxed">
+        <p className="text-[12px] text-text-secondary leading-relaxed">
           Detects selloff start and end events using candlestick selloff structure and
           bullish reversal confirmation, with composite score shown as context.
           Runs a single 3-month window from your selected start date.
@@ -289,7 +289,7 @@ export default function CryptoSelloffDetectionPage({ apiPrefix }: { apiPrefix: s
         </Field>
 
         {detectionConfig ? (
-          <div className="rounded border border-border bg-surface-2 px-3 py-2 text-[10px] text-text-secondary space-y-1">
+          <div className="rounded border border-border bg-surface-2 px-3 py-2 text-[11px] text-text-secondary space-y-1">
             <p>
               Detection Profile: <span className="text-text-primary">{detectionConfig.label}</span>
             </p>
@@ -324,7 +324,7 @@ export default function CryptoSelloffDetectionPage({ apiPrefix }: { apiPrefix: s
       </aside>
 
       <section className="flex-1 min-w-0 flex flex-col">
-        <div className="shrink-0 px-4 py-2 border-b border-border/70 text-[11px] uppercase tracking-widest text-text-secondary font-semibold">
+        <div className="shrink-0 px-4 py-2 border-b border-border/70 text-[12px] uppercase tracking-widest text-text-secondary font-semibold">
           Results
         </div>
         {!result ? (
@@ -334,7 +334,7 @@ export default function CryptoSelloffDetectionPage({ apiPrefix }: { apiPrefix: s
         ) : (
           <div className="flex-1 overflow-y-auto">
             <div className="border-b border-border p-4 space-y-3">
-              <p className="text-[11px] text-text-secondary">
+              <p className="text-[12px] text-text-secondary">
                 3-month window: {runResult?.startDate} to {runResult?.endDate}
               </p>
             </div>
@@ -375,7 +375,7 @@ export default function CryptoSelloffDetectionPage({ apiPrefix }: { apiPrefix: s
                 movingAverageDays={SELLOFF_DETECTION_MA_DAYS}
               />
             </div>
-            <div className="px-4 py-2 border-b border-border text-[11px] text-text-secondary">
+            <div className="px-4 py-2 border-b border-border text-[12px] text-text-secondary">
               Markers: red down arrow = selloff started, green up arrow = selloff ended. Lines: 10-bar
               horizontal projection at each event price ({eventMarkers.length} events).
             </div>
@@ -579,7 +579,7 @@ function Field({
 }) {
   return (
     <label className="block">
-      <span className="mb-1 block text-[10px] text-text-secondary">{label}</span>
+      <span className="mb-1 block text-[11px] text-text-secondary">{label}</span>
       {children}
     </label>
   );
@@ -596,9 +596,9 @@ function StatCard({
 }) {
   return (
     <div className="rounded border border-border bg-surface-1 px-3 py-2">
-      <p className="text-[10px] text-text-secondary">{label}</p>
+      <p className="text-[11px] text-text-secondary">{label}</p>
       <p className="text-sm font-semibold tabular-nums text-text-primary">{value}</p>
-      <p className="text-[10px] text-text-secondary">{sub}</p>
+      <p className="text-[11px] text-text-secondary">{sub}</p>
     </div>
   );
 }

@@ -257,10 +257,10 @@ export default function AlgorithmVsSp500Page({ apiPrefix }: { apiPrefix: string 
   return (
     <div className="flex h-full overflow-hidden">
       <aside className="w-80 flex-shrink-0 overflow-y-auto border-r border-border p-4 space-y-3">
-        <p className="text-[11px] uppercase tracking-widest text-text-secondary font-semibold">
+        <p className="text-[12px] uppercase tracking-widest text-text-secondary font-semibold">
           Algorithm vs SP500
         </p>
-        <p className="text-[11px] text-text-secondary leading-relaxed">
+        <p className="text-[12px] text-text-secondary leading-relaxed">
           Runs your buy and sell algorithms independently for each stock in the list, then compares each
           strategy result to S&amp;P 500 buy-and-hold and S&amp;P 500 with the same algorithms.
         </p>
@@ -273,7 +273,7 @@ export default function AlgorithmVsSp500Page({ apiPrefix }: { apiPrefix: string 
             onChange={(event) => setForm((current) => ({ ...current, symbols: event.target.value.toUpperCase() }))}
             placeholder={MAG7_DEFAULT}
           />
-          <p className="mt-1 text-[10px] text-text-secondary">Comma, space, or newline separated symbols.</p>
+          <p className="mt-1 text-[11px] text-text-secondary">Comma, space, or newline separated symbols.</p>
         </Field>
 
         <Field label="Capital Per Stock ($)">
@@ -387,7 +387,7 @@ export default function AlgorithmVsSp500Page({ apiPrefix }: { apiPrefix: string 
       </aside>
 
       <div className="flex flex-1 min-w-0 flex-col">
-        <div className="shrink-0 border-b border-border/70 px-4 py-2 text-[11px] uppercase tracking-widest text-text-secondary font-semibold">
+        <div className="shrink-0 border-b border-border/70 px-4 py-2 text-[12px] uppercase tracking-widest text-text-secondary font-semibold">
           Results
         </div>
 
@@ -423,7 +423,7 @@ export default function AlgorithmVsSp500Page({ apiPrefix }: { apiPrefix: string 
         ) : (
           <div className="flex-1 min-h-0 overflow-auto">
             <table className="w-full text-xs">
-              <thead className="sticky top-0 z-10 bg-surface-1 text-[10px] uppercase tracking-wide text-text-secondary">
+              <thead className="sticky top-0 z-10 bg-surface-1 text-[11px] uppercase tracking-wide text-text-secondary">
                 <tr>
                   <th className="px-3 py-2 text-left font-medium">Symbol</th>
                   <th className="px-3 py-2 text-left font-medium">Window</th>
@@ -445,7 +445,7 @@ export default function AlgorithmVsSp500Page({ apiPrefix }: { apiPrefix: string 
                     </td>
                     <td className={`px-3 py-2 text-right tabular-nums ${valueColor(row.stockAlgorithmReturnPct)}`}>
                       {formatSignedPct(row.stockAlgorithmReturnPct)}
-                      <span className="ml-1 text-[10px] text-text-secondary">
+                      <span className="ml-1 text-[11px] text-text-secondary">
                         ({formatSignedUsd(row.stockAlgorithmProfitUsd)})
                       </span>
                     </td>
@@ -474,14 +474,14 @@ export default function AlgorithmVsSp500Page({ apiPrefix }: { apiPrefix: string 
 
             {chartRuns.length > 0 ? (
               <section className="border-t border-border/60 bg-surface-1 px-4 py-4">
-                <p className="mb-3 text-[11px] uppercase tracking-widest text-text-secondary font-semibold">
+                <p className="mb-3 text-[12px] uppercase tracking-widest text-text-secondary font-semibold">
                   Individual Trade Charts
                 </p>
 
                 <div className="space-y-4">
                   {chartRuns.map((chartRun) => (
                     <div key={`chart-${chartRun.symbol}`} className="rounded border border-border bg-surface">
-                      <div className="border-b border-border/60 px-3 py-2 text-[11px] text-text-secondary">
+                      <div className="border-b border-border/60 px-3 py-2 text-[12px] text-text-secondary">
                         <span className="font-semibold text-text-primary">{chartRun.symbol}</span>
                         <span className="ml-2 tabular-nums">
                           {chartRun.startDate} → {chartRun.endDate}
@@ -490,7 +490,7 @@ export default function AlgorithmVsSp500Page({ apiPrefix }: { apiPrefix: string 
 
                       <div className="grid grid-cols-1 gap-3 p-3 xl:grid-cols-2">
                         <div className="rounded border border-border/60 bg-surface-2">
-                          <div className="border-b border-border/50 px-3 py-2 text-[10px] uppercase tracking-wide text-text-secondary">
+                          <div className="border-b border-border/50 px-3 py-2 text-[11px] uppercase tracking-wide text-text-secondary">
                             {chartRun.symbol} Algorithm Trades
                           </div>
                           <div className="h-64">
@@ -509,7 +509,7 @@ export default function AlgorithmVsSp500Page({ apiPrefix }: { apiPrefix: string 
                         </div>
 
                         <div className="rounded border border-border/60 bg-surface-2">
-                          <div className="border-b border-border/50 px-3 py-2 text-[10px] uppercase tracking-wide text-text-secondary">
+                          <div className="border-b border-border/50 px-3 py-2 text-[11px] uppercase tracking-wide text-text-secondary">
                             SP500 Algorithm Trades
                           </div>
                           <div className="h-64">
@@ -542,7 +542,7 @@ export default function AlgorithmVsSp500Page({ apiPrefix }: { apiPrefix: string 
 function SummaryTile({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded border border-border bg-surface px-2.5 py-2">
-      <p className="text-[10px] text-text-secondary">{label}</p>
+      <p className="text-[11px] text-text-secondary">{label}</p>
       <p className="text-sm font-semibold tabular-nums text-text-primary">{value}</p>
     </div>
   );
@@ -557,33 +557,33 @@ function ChartTradeLists({
 }) {
   return (
     <div className="border-t border-border/50 p-2">
-      <p className="mb-2 px-1 text-[10px] uppercase tracking-wide text-text-secondary">
+      <p className="mb-2 px-1 text-[11px] uppercase tracking-wide text-text-secondary">
         Trade List
       </p>
 
       <div className="grid grid-cols-1 gap-2 2xl:grid-cols-2">
         <div className="rounded border border-border/60 bg-surface-1">
-          <div className="border-b border-border/50 px-2.5 py-1.5 text-[10px] text-text-secondary">
+          <div className="border-b border-border/50 px-2.5 py-1.5 text-[11px] text-text-secondary">
             Buys ({buyTrades.length})
           </div>
           <div className="h-44">
             {buyTrades.length > 0 ? (
               <TradeTable trades={buyTrades} direction="scale_in" compact />
             ) : (
-              <div className="p-3 text-[11px] text-text-secondary">No buy trades.</div>
+              <div className="p-3 text-[12px] text-text-secondary">No buy trades.</div>
             )}
           </div>
         </div>
 
         <div className="rounded border border-border/60 bg-surface-1">
-          <div className="border-b border-border/50 px-2.5 py-1.5 text-[10px] text-text-secondary">
+          <div className="border-b border-border/50 px-2.5 py-1.5 text-[11px] text-text-secondary">
             Sells ({sellTrades.length})
           </div>
           <div className="h-44">
             {sellTrades.length > 0 ? (
               <TradeTable trades={sellTrades} direction="scale_out" compact />
             ) : (
-              <div className="p-3 text-[11px] text-text-secondary">No sell trades.</div>
+              <div className="p-3 text-[12px] text-text-secondary">No sell trades.</div>
             )}
           </div>
         </div>
@@ -595,7 +595,7 @@ function ChartTradeLists({
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div>
-      <label className="mb-1 block text-[11px] text-text-secondary">{label}</label>
+      <label className="mb-1 block text-[12px] text-text-secondary">{label}</label>
       {children}
     </div>
   );
@@ -619,7 +619,7 @@ function DurationChips({
             key={`duration-chip-${days}`}
             type="button"
             onClick={() => onChange(days)}
-            className={`rounded border px-2 py-1 text-[10px] transition-colors ${
+            className={`rounded border px-2 py-1 text-[11px] transition-colors ${
               isActive
                 ? "border-accent/50 bg-accent/15 text-accent"
                 : "border-border bg-surface-2 text-text-secondary hover:text-text-primary"

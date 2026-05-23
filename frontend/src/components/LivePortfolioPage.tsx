@@ -33,6 +33,8 @@ type LivePortfolioWhitepaper = {
 type LivePortfolioSnapshot = {
   portfolioKey: string;
   portfolioName: string;
+  description: string | null;
+  selectionRationale: string | null;
   whitepaper: LivePortfolioWhitepaper | null;
   launchedAt: string | null;
   algorithm: "buy_over_time";
@@ -82,6 +84,10 @@ export default function LivePortfolioPage({
   const liveSinceLabel = formatLiveSinceDay(snapshot?.launchedAt ?? null);
   const aiWhitepaperDisclosure = snapshot?.whitepaper?.disclosure?.trim()
     || "Transparency note: this portfolio whitepaper was originally AI-generated and should be reviewed before relying on it.";
+  const portfolioDescription = snapshot?.description?.trim()
+    || "This live portfolio is a rules-based allocation built to represent a focused theme while remaining diversified across complementary assets.";
+  const portfolioSelectionRationale = snapshot?.selectionRationale?.trim()
+    || "Selections emphasize category leaders, strategic suppliers, and supporting infrastructure so the portfolio captures core growth drivers instead of relying on a single company outcome.";
 
   useEffect(() => {
     priceBarsBySymbolRef.current = priceBarsBySymbol;
@@ -124,11 +130,15 @@ export default function LivePortfolioPage({
           : normalizePortfolioKey(portfolioKey ?? snapshotPortfolioName);
       const snapshotWhitepaper = coerceWhitepaper(body.whitepaper);
       const snapshotLaunchedAt = coerceOptionalDateString(body.launchedAt);
+      const snapshotDescription = coerceOptionalNarrative(body.description);
+      const snapshotSelectionRationale = coerceOptionalNarrative(body.selectionRationale);
 
       setSnapshot({
         ...(body as LivePortfolioSnapshot),
         portfolioName: snapshotPortfolioName,
         portfolioKey: snapshotPortfolioKey,
+        description: snapshotDescription,
+        selectionRationale: snapshotSelectionRationale,
         whitepaper: snapshotWhitepaper,
         launchedAt: snapshotLaunchedAt,
       });
@@ -218,10 +228,13 @@ export default function LivePortfolioPage({
         <div>
           <h2 className="text-sm font-semibold mb-1">{snapshot?.portfolioName ?? defaultPortfolioName}</h2>
           <p className="text-xs text-text-secondary">
-            Backend-controlled target allocations with live buy-over-time signals at 7, 30, and 90 days.
+            {portfolioDescription}
+          </p>
+          <p className="text-xs text-text-secondary mt-1">
+            {portfolioSelectionRationale}
           </p>
           {liveSinceLabel ? (
-            <p className="text-[11px] text-text-secondary mt-1">
+            <p className="text-[12px] text-text-secondary mt-1">
               Live since {liveSinceLabel}
             </p>
           ) : null}
@@ -245,21 +258,21 @@ export default function LivePortfolioPage({
                 href={whitepaperLink}
                 target="_blank"
                 rel="noreferrer"
-                className="inline-flex rounded border border-accent/40 bg-accent/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-accent transition-colors hover:border-accent hover:bg-accent/15"
+                className="inline-flex rounded border border-accent/40 bg-accent/10 px-2 py-1 text-[11px] font-semibold uppercase tracking-wide text-accent transition-colors hover:border-accent hover:bg-accent/15"
               >
                 Open PDF
               </a>
             ) : (
-              <span className="text-[10px] text-sell">Whitepaper link is invalid.</span>
+              <span className="text-[11px] text-sell">Whitepaper link is invalid.</span>
             )}
             {snapshot.whitepaper.aiGenerated ? (
-              <span className="inline-flex rounded border border-[#f5c16c66] bg-[#f5c16c22] px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-[#f5c16c]">
+              <span className="inline-flex rounded border border-[#f5c16c66] bg-[#f5c16c22] px-2 py-1 text-[11px] font-semibold uppercase tracking-wide text-[#f5c16c]">
                 AI-generated
               </span>
             ) : null}
           </div>
           {snapshot.whitepaper.aiGenerated ? (
-            <p className="mt-1 text-[10px] text-[#f5c16c]">{aiWhitepaperDisclosure}</p>
+            <p className="mt-1 text-[11px] text-[#f5c16c]">{aiWhitepaperDisclosure}</p>
           ) : null}
         </section>
       ) : null}
@@ -305,7 +318,7 @@ export default function LivePortfolioPage({
 
       <section className="rounded border border-border bg-surface-1">
         <div className="px-4 py-2 border-b border-border">
-          <span className="text-[11px] uppercase tracking-widest text-text-secondary font-semibold">
+          <span className="text-[12px] uppercase tracking-widest text-text-secondary font-semibold">
             Allocation and Signals
           </span>
         </div>
@@ -333,12 +346,12 @@ export default function LivePortfolioPage({
                     <section className="rounded border border-border/70 bg-surface-1 p-2.5">
                       <div className="flex gap-2">
                         <aside className="w-44 shrink-0 rounded border border-border bg-surface-2 p-2">
-                          <dl className="space-y-1.5 text-[10px]">
+                          <dl className="space-y-1.5 text-[11px]">
                             <div>
                               <dt className="uppercase tracking-wide text-text-secondary">Symbol</dt>
                               <dd className="font-semibold text-text-primary">{holding.symbol}</dd>
                               {holding.summary ? (
-                                <p className="mt-1 text-[10px] leading-snug text-text-secondary">
+                                <p className="mt-1 text-[11px] leading-snug text-text-secondary">
                                   {holding.summary}
                                 </p>
                               ) : null}
@@ -347,7 +360,7 @@ export default function LivePortfolioPage({
                                   href={wikipediaUrl}
                                   target="_blank"
                                   rel="noreferrer"
-                                  className="mt-1 inline-flex text-[10px] font-medium text-accent hover:underline"
+                                  className="mt-1 inline-flex text-[11px] font-medium text-accent hover:underline"
                                 >
                                   Wikipedia
                                 </a>
@@ -369,7 +382,7 @@ export default function LivePortfolioPage({
                         </aside>
 
                         <div className="min-w-0 flex-1">
-                          <p className="text-[10px] uppercase tracking-widest text-text-secondary font-semibold">
+                          <p className="text-[11px] uppercase tracking-widest text-text-secondary font-semibold">
                             Price (2Y)
                           </p>
                           <div className="mt-1.5">
@@ -399,7 +412,7 @@ export default function LivePortfolioPage({
                     </section>
 
                     <section className="rounded border border-border/70 bg-surface-1 p-2.5">
-                      <p className="text-[10px] uppercase tracking-widest text-text-secondary font-semibold">
+                      <p className="text-[11px] uppercase tracking-widest text-text-secondary font-semibold">
                         Signal Breakdown
                       </p>
                       <div className="mt-1.5">
@@ -458,8 +471,8 @@ function SignalBreakdownTable({
 
   return (
     <div className="overflow-auto rounded border border-border/60">
-      <table className="w-full text-[11px]">
-        <thead className="bg-surface-2 text-[9px] uppercase tracking-wide text-text-secondary">
+      <table className="w-full text-[12px]">
+        <thead className="bg-surface-2 text-[11px] uppercase tracking-wide text-text-secondary">
           <tr>
             <th className="px-2 py-1 text-left">Window</th>
             <th className="px-2 py-1 text-left">Action</th>
@@ -492,14 +505,14 @@ function SignalBreakdownTable({
                   </td>
                 </tr>
                 <tr className="border-t border-border/20 bg-surface-2/20">
-                  <td colSpan={3} className="px-2 py-1 text-[10px] text-text-secondary">
+                  <td colSpan={3} className="px-2 py-1 text-[11px] text-text-secondary">
                     <p>
                       {signal?.error
                         ? signal.error
                         : signal?.rationale ?? `Buy >= ${formatScore(buyThreshold)} | Sell <= ${formatScore(sellThreshold)}`}
                     </p>
                   </td>
-                  <td className="px-2 py-1 text-right text-[10px] text-text-secondary">
+                  <td className="px-2 py-1 text-right text-[11px] text-text-secondary">
                     {breakdown ? `${breakdown.barsUsed} bars` : "-"}
                   </td>
                 </tr>
@@ -508,7 +521,7 @@ function SignalBreakdownTable({
           })}
         </tbody>
       </table>
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-border/50 px-2 py-1.5 text-[10px] text-text-secondary">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-border/50 px-2 py-1.5 text-[11px] text-text-secondary">
         <span className="text-buy">Buy threshold: {formatScore(buyThreshold)}</span>
         <span className="text-sell">Sell threshold: {formatScore(sellThreshold)}</span>
         <span className="inline-flex items-center gap-1 rounded border border-[#f5c16c55] bg-[#f5c16c22] px-1.5 py-0.5 text-[#f5c16c]">
@@ -533,7 +546,7 @@ function SignalScoreBar({
 }) {
   if (score == null || !Number.isFinite(score)) {
     return (
-      <div className="text-right tabular-nums text-[11px] text-text-secondary">-</div>
+      <div className="text-right tabular-nums text-[12px] text-text-secondary">-</div>
     );
   }
 
@@ -548,7 +561,7 @@ function SignalScoreBar({
           style={{ width: `${pct}%`, backgroundColor: color }}
         />
       </div>
-      <span className="tabular-nums text-[10px]" style={{ color }}>
+      <span className="tabular-nums text-[11px]" style={{ color }}>
         {pct}%
       </span>
     </div>
@@ -578,9 +591,9 @@ function MetricCard({
 }) {
   return (
     <div className="rounded border border-border bg-surface-1 p-3">
-      <p className="text-[11px] text-text-secondary mb-1">{label}</p>
+      <p className="text-[12px] text-text-secondary mb-1">{label}</p>
       <p className={`text-base font-semibold tabular-nums ${valueClassName}`}>{value}</p>
-      <p className="text-[10px] text-text-secondary mt-0.5">{sub}</p>
+      <p className="text-[11px] text-text-secondary mt-0.5">{sub}</p>
     </div>
   );
 }
@@ -665,6 +678,12 @@ function coerceOptionalDateString(value: unknown): string | null {
   const trimmed = value.trim();
   if (!trimmed) return null;
   return Number.isFinite(Date.parse(trimmed)) ? trimmed : null;
+}
+
+function coerceOptionalNarrative(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed || null;
 }
 
 function formatLiveSinceDay(value: string | null): string | null {

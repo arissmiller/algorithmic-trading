@@ -96,6 +96,7 @@ Live portfolio behavior:
 - Supports multiple named portfolios using `defaultPortfolioKey` + `portfolios[]` in the state file.
 - Each portfolio can optionally define a `whitepaper` object (`title`, `url`, `aiGenerated`, optional `disclosure`) for UI linking and AI-origin transparency.
 - Each portfolio can optionally define `launchedAt` (any valid date string) to display a stable "Live since ..." day in the live portfolio header.
+- Each portfolio can optionally define `description` and `selectionRationale` to explain what the portfolio is and why those holdings were selected.
 - Edit that file directly to control target percentages.
 - The service auto-reloads file edits on the next portfolio request.
 

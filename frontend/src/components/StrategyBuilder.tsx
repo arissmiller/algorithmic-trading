@@ -422,7 +422,7 @@ export default function StrategyBuilder({
       }}
       className="flex flex-col gap-4 p-4 h-full overflow-y-auto"
     >
-      <p className="text-[11px] uppercase tracking-widest text-text-secondary font-semibold">
+      <p className="text-[12px] uppercase tracking-widest text-text-secondary font-semibold">
         Strategy
       </p>
 
@@ -447,10 +447,10 @@ export default function StrategyBuilder({
             Apply
           </button>
         </div>
-        <p className="mt-1 text-[10px] text-text-secondary">
+        <p className="mt-1 text-[11px] text-text-secondary">
           Best for: {selectedPreset.suitableFor}
         </p>
-        <p className="text-[10px] text-text-secondary">
+        <p className="text-[11px] text-text-secondary">
           Tuning hint: {selectedPreset.tuneHint}
         </p>
       </Field>
@@ -475,7 +475,7 @@ export default function StrategyBuilder({
               onChange={(e) => patch("totalAmount", +e.target.value)}
             />
           </Field>
-          <div className="rounded border border-border bg-surface-2 px-2.5 py-2 text-[10px] text-text-secondary">
+          <div className="rounded border border-border bg-surface-2 px-2.5 py-2 text-[11px] text-text-secondary">
             This preset is event-driven. Cadence is not used.
           </div>
         </>
@@ -521,9 +521,9 @@ export default function StrategyBuilder({
             onChange={(e) => patch("endDate", e.target.value)}
           />
           {continuousDateError ? (
-            <p className="mt-1 text-[10px] text-sell">{continuousDateError}</p>
+            <p className="mt-1 text-[11px] text-sell">{continuousDateError}</p>
           ) : null}
-          <p className="mt-1 text-[10px] text-text-secondary">
+          <p className="mt-1 text-[11px] text-text-secondary">
             This strategy uses one continuous window from start to end for both accumulation and distribution logic.
           </p>
         </Field>
@@ -553,7 +553,7 @@ export default function StrategyBuilder({
       )}
 
       {!isContinuousRange && isIntraday && (
-        <div className="rounded border border-border bg-surface-2 px-2.5 py-2 text-[10px] text-text-secondary">
+        <div className="rounded border border-border bg-surface-2 px-2.5 py-2 text-[11px] text-text-secondary">
           Scale-in: {form.scaleInWindowDays} days · Scale-out: {form.scaleOutWindowDays} days
           {" "}(set by preset for intraday)
         </div>
@@ -570,13 +570,13 @@ export default function StrategyBuilder({
             />
             <button
               type="button"
-              className="rounded border border-border bg-surface-2 px-2 py-1 text-[10px] text-text-secondary hover:text-text-primary"
+              className="rounded border border-border bg-surface-2 px-2 py-1 text-[11px] text-text-secondary hover:text-text-primary"
               onClick={() => patch("scaleOutStartDate", suggestedScaleOutStartDate)}
             >
               Use Suggested
             </button>
           </div>
-          <p className="mt-1 text-[10px] text-text-secondary">
+          <p className="mt-1 text-[11px] text-text-secondary">
             Suggested from start + scale-in period: {suggestedScaleOutStartDate}
           </p>
         </Field>
@@ -615,39 +615,39 @@ export default function StrategyBuilder({
 
       {isEventDrivenPreset ? (
         <div className="rounded border border-border bg-surface-2 px-2.5 py-2">
-          <p className="text-[11px] text-text-secondary">Execution model</p>
+          <p className="text-[12px] text-text-secondary">Execution model</p>
           <p className="mt-0.5 text-xs text-text-primary">
             {selectedPreset.key === "crypto_short_selloff"
               ? "Event-driven short entry on selloff trigger, then 5m mean-reversion cover cadence."
               : "Event-driven on selloff confirmations + EMA slope regime."}
           </p>
-          <p className="text-[10px] text-text-secondary mt-0.5">No tranche cadence is applied for this preset.</p>
+          <p className="text-[11px] text-text-secondary mt-0.5">No tranche cadence is applied for this preset.</p>
         </div>
       ) : (
         <div className="rounded border border-border bg-surface-2 px-2.5 py-2">
-          <p className="text-[11px] text-text-secondary">Derived tranches (from cadence)</p>
+          <p className="text-[12px] text-text-secondary">Derived tranches (from cadence)</p>
           <p className="mt-0.5 text-xs text-text-primary tabular-nums">
             {isContinuousRange
               ? `Continuous: ${continuousTranches} across ${continuousWindowDays} day${continuousWindowDays === 1 ? "" : "s"}`
               : `Scale-in: ${inTranches} | Scale-out: ${outTranches}`}
           </p>
-          <p className="text-[10px] text-text-secondary mt-0.5">Runtime may cap counts based on available bars.</p>
+          <p className="text-[11px] text-text-secondary mt-0.5">Runtime may cap counts based on available bars.</p>
         </div>
       )}
 
       {!isEventDrivenPreset && (
         <div className="rounded border border-border bg-surface-2 px-2.5 py-2">
-          <p className="text-[11px] text-text-secondary">Regime Tuning Cheat Sheet</p>
-          <p className="mt-1 text-[10px] text-text-secondary">
+          <p className="text-[12px] text-text-secondary">Regime Tuning Cheat Sheet</p>
+          <p className="mt-1 text-[11px] text-text-secondary">
             Trending up: cadence 5-8, aggressiveness 0.30-0.50, emphasize Price vs SMA + Momentum.
           </p>
-          <p className="mt-0.5 text-[10px] text-text-secondary">
+          <p className="mt-0.5 text-[11px] text-text-secondary">
             Sideways/range: cadence 2-4, aggressiveness 0.60-0.85, emphasize RSI + Bollinger.
           </p>
-          <p className="mt-0.5 text-[10px] text-text-secondary">
+          <p className="mt-0.5 text-[11px] text-text-secondary">
             Panic/high-vol: cadence 1-3, aggressiveness 0.65-0.90, add Volume and shorten momentum lookback.
           </p>
-          <p className="mt-0.5 text-[10px] text-text-secondary">
+          <p className="mt-0.5 text-[11px] text-text-secondary">
             Risk-off/uncertain: cadence 5-10, aggressiveness 0.20-0.40, widen windows and reduce indicator sensitivity.
           </p>
         </div>
@@ -663,14 +663,14 @@ export default function StrategyBuilder({
           value={form.aggressiveness}
           onChange={(e) => patch("aggressiveness", +e.target.value)}
         />
-        <div className="flex justify-between text-[10px] text-text-secondary -mt-1">
+        <div className="flex justify-between text-[11px] text-text-secondary -mt-1">
           <span>Equal DCA</span>
           <span>Signal-weighted</span>
         </div>
       </Field>
 
       <div>
-        <p className="text-[11px] uppercase tracking-widest text-text-secondary font-semibold mb-2">Signals</p>
+        <p className="text-[12px] uppercase tracking-widest text-text-secondary font-semibold mb-2">Signals</p>
         <div className="flex flex-col gap-1.5">
           {(Object.entries(SIGNAL_META) as [SignalKey, { label: string; description: string }][]).map(
             ([type, meta]) => {
@@ -684,12 +684,12 @@ export default function StrategyBuilder({
                     on ? "border-accent/50 bg-accent/10" : "border-border bg-surface-2 hover:border-border/70"
                   }`}
                 >
-                  <span className={`mt-px flex h-3.5 w-3.5 flex-shrink-0 items-center justify-center rounded-sm text-[9px] ${on ? "bg-accent text-white" : "bg-surface-3"}`}>
+                  <span className={`mt-px flex h-3.5 w-3.5 flex-shrink-0 items-center justify-center rounded-sm text-[11px] ${on ? "bg-accent text-white" : "bg-surface-3"}`}>
                     {on ? "✓" : ""}
                   </span>
                   <div>
                     <p className={`text-xs font-medium ${on ? "text-accent" : "text-text-primary"}`}>{meta.label}</p>
-                    <p className="text-[10px] text-text-secondary leading-snug">{meta.description}</p>
+                    <p className="text-[11px] text-text-secondary leading-snug">{meta.description}</p>
                   </div>
                 </button>
               );
@@ -723,7 +723,7 @@ const input =
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div>
-      <label className="mb-1 block text-[11px] text-text-secondary">{label}</label>
+      <label className="mb-1 block text-[12px] text-text-secondary">{label}</label>
       {children}
     </div>
   );

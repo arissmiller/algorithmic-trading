@@ -212,21 +212,21 @@ export default function AIControlCenter({
 
   return (
     <section className="rounded border border-border bg-surface-1">
-      <div className="px-4 py-2 border-b border-border text-[11px] uppercase tracking-widest text-text-secondary font-semibold">
+      <div className="px-4 py-2 border-b border-border text-[12px] uppercase tracking-widest text-text-secondary font-semibold">
         AI Oversight
       </div>
       <div className="p-4 space-y-4 text-xs">
         <div className="rounded border border-border bg-surface-2 p-3">
           <div className="flex items-start gap-3">
             <div className="flex-1">
-              <p className="text-[11px] text-text-secondary mb-1">Objective</p>
+              <p className="text-[12px] text-text-secondary mb-1">Objective</p>
               <textarea
                 className={inputClass}
                 rows={2}
                 value={state.goal.objective}
                 onChange={(e) => updateGoal("objective", e.target.value)}
               />
-              <p className="mt-1 text-[10px] text-text-secondary">
+              <p className="mt-1 text-[11px] text-text-secondary">
                 Watch-only mode is enforced. The app records AI decisions but does not send orders.
               </p>
             </div>
@@ -290,7 +290,7 @@ export default function AIControlCenter({
             </div>
           </div>
           {suggestedStrategyId && (
-            <p className="mt-2 text-[10px] text-text-secondary">
+            <p className="mt-2 text-[11px] text-text-secondary">
               Suggested strategy: <span className="text-text-primary">{suggestedStrategyId}</span>
               {suggestedStrategySummary ? ` | ${suggestedStrategySummary}` : ""}
             </p>
@@ -299,7 +299,7 @@ export default function AIControlCenter({
 
         <div className="rounded border border-border bg-surface-2 p-3">
           <div className="flex items-center gap-3">
-            <p className="text-[11px] uppercase tracking-wide text-text-secondary font-semibold">
+            <p className="text-[12px] uppercase tracking-wide text-text-secondary font-semibold">
               Daily LLM Budget
             </p>
             <span
@@ -309,8 +309,8 @@ export default function AIControlCenter({
             >
               {usedToday}/{state.goal.queryLimitPerDay} used today
             </span>
-            <span className="text-[10px] text-text-secondary">Remaining: {remainingToday}</span>
-            <span className="ml-auto text-[10px] text-text-secondary">{todayKey}</span>
+            <span className="text-[11px] text-text-secondary">Remaining: {remainingToday}</span>
+            <span className="ml-auto text-[11px] text-text-secondary">{todayKey}</span>
           </div>
           <form className="mt-3 grid grid-cols-1 gap-2 lg:grid-cols-4" onSubmit={handleAddQuery}>
             <input
@@ -345,7 +345,7 @@ export default function AIControlCenter({
 
         <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
           <section className="rounded border border-border bg-surface-2">
-            <div className="px-3 py-2 border-b border-border text-[11px] uppercase tracking-wide text-text-secondary font-semibold">
+            <div className="px-3 py-2 border-b border-border text-[12px] uppercase tracking-wide text-text-secondary font-semibold">
               Decision Log
             </div>
             <form className="p-3 grid grid-cols-1 gap-2" onSubmit={handleAddDecision}>
@@ -420,7 +420,7 @@ export default function AIControlCenter({
               </button>
             </form>
             <div className="max-h-72 overflow-auto border-t border-border">
-              <table className="w-full text-[11px]">
+              <table className="w-full text-[12px]">
                 <thead className="sticky top-0 bg-surface-2 text-text-secondary">
                   <tr>
                     <th className="px-2 py-1 text-left">When</th>
@@ -461,7 +461,7 @@ export default function AIControlCenter({
           </section>
 
           <section className="rounded border border-border bg-surface-2">
-            <div className="px-3 py-2 border-b border-border text-[11px] uppercase tracking-wide text-text-secondary font-semibold">
+            <div className="px-3 py-2 border-b border-border text-[12px] uppercase tracking-wide text-text-secondary font-semibold">
               Trade Log
             </div>
             <form className="p-3 grid grid-cols-1 gap-2" onSubmit={handleAddTrade}>
@@ -543,7 +543,7 @@ export default function AIControlCenter({
               </button>
             </form>
             <div className="max-h-72 overflow-auto border-t border-border">
-              <table className="w-full text-[11px]">
+              <table className="w-full text-[12px]">
                 <thead className="sticky top-0 bg-surface-2 text-text-secondary">
                   <tr>
                     <th className="px-2 py-1 text-left">When</th>
@@ -628,7 +628,7 @@ function LimitBtn({
     <button
       type="button"
       onClick={onClick}
-      className={`rounded border px-2 py-1 text-[11px] ${
+      className={`rounded border px-2 py-1 text-[12px] ${
         active
           ? "border-accent/50 bg-accent/15 text-accent"
           : "border-border bg-surface-3 text-text-secondary"
@@ -685,6 +685,6 @@ function makeId(prefix: string): string {
   return `${prefix}_${Math.random().toString(36).slice(2, 8)}_${Date.now().toString(36)}`;
 }
 
-const fieldLabel = "text-[10px] text-text-secondary";
+const fieldLabel = "text-[11px] text-text-secondary";
 const inputClass =
   "w-full rounded border border-border bg-surface-3 px-2 py-1.5 text-xs text-text-primary focus:border-accent focus:outline-none";

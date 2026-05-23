@@ -83,11 +83,11 @@ function Card({
   const color = pos === undefined ? "text-text-primary" : pos ? "text-buy" : "text-sell";
   return (
     <div className={`rounded-lg border border-border bg-surface-2 ${compact ? "p-2.5" : "p-3"}`}>
-      <p className="text-[11px] text-text-secondary mb-1">{label}</p>
+      <p className="text-[12px] text-text-secondary mb-1">{label}</p>
       <p className={`${compact ? "text-sm" : "text-base"} font-semibold tabular-nums ${color}`}>
         {value}
       </p>
-      {sub && <p className="text-[10px] text-text-secondary mt-0.5">{sub}</p>}
+      {sub && <p className="text-[11px] text-text-secondary mt-0.5">{sub}</p>}
     </div>
   );
 }

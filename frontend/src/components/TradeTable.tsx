@@ -20,7 +20,7 @@ export default function TradeTable({
 
   return (
     <div className="overflow-auto h-full">
-      <table className={`w-full ${compact ? "text-[11px]" : "text-xs"}`}>
+      <table className={`w-full ${compact ? "text-[12px]" : "text-xs"}`}>
         <thead className="sticky top-0 bg-surface-1">
           <tr className="border-b border-border text-text-secondary">
             <th className={`${rowPadding} text-left ${indexColWidth}`}>#</th>
@@ -129,7 +129,7 @@ function ScoreBar({
           style={{ width: `${Math.round(score * 100)}%` }}
         />
       </div>
-      <span className={`tabular-nums ${compact ? "text-[10px]" : ""} ${isScaleOut ? "text-sell" : "text-buy"}`}>
+      <span className={`tabular-nums ${compact ? "text-[11px]" : ""} ${isScaleOut ? "text-sell" : "text-buy"}`}>
         {Math.round(score * 100)}%
       </span>
     </div>

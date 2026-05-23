@@ -539,7 +539,7 @@ export default function App() {
           <span className="text-sm font-semibold tracking-tight">Smart Scale</span>
           <a
             href="https://arissmiller.net"
-            className="ml-auto rounded border border-border bg-surface-2 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-text-secondary transition-colors hover:text-text-primary"
+            className="ml-auto rounded border border-border bg-surface-2 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-text-secondary transition-colors hover:text-text-primary"
           >
             Back to Projects
           </a>
@@ -547,14 +547,14 @@ export default function App() {
             className={`h-2 w-2 rounded-full ${serverOnline ? "bg-buy" : "bg-sell"}`}
             title={serverOnline ? "API online" : "API offline"}
           />
-          <span className="text-[10px] text-text-secondary">
+          <span className="text-[11px] text-text-secondary">
             {serverOnline ? "API online" : "API offline"}
           </span>
         </div>
         <nav className="space-y-2 px-3 py-2">
           {APP_PAGE_GROUPS.map((group) => (
             <div key={group.label} className="flex items-start gap-2">
-              <p className="w-20 shrink-0 pt-1 text-[9px] font-semibold uppercase tracking-widest text-text-secondary">
+              <p className="w-20 shrink-0 pt-1 text-[11px] font-semibold uppercase tracking-widest text-text-secondary">
                 {group.label}
               </p>
               <div className="flex min-w-0 flex-1 gap-1 overflow-x-auto pb-0.5">
@@ -565,7 +565,7 @@ export default function App() {
                       key={page.id}
                       type="button"
                       onClick={() => setActivePage(page.id)}
-                      className={`shrink-0 rounded border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide transition-colors ${
+                      className={`shrink-0 rounded border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide transition-colors ${
                         active
                           ? "border-accent/50 bg-accent/15 text-accent"
                           : "border-border bg-surface-2 text-text-secondary hover:text-text-primary"
@@ -703,7 +703,7 @@ function BacktestingPage({
       </aside>
 
       <div className="flex flex-col flex-1 min-w-0">
-        <div className="shrink-0 px-4 py-2 border-b border-border/70 text-[11px] uppercase tracking-widest text-text-secondary font-semibold">
+        <div className="shrink-0 px-4 py-2 border-b border-border/70 text-[12px] uppercase tracking-widest text-text-secondary font-semibold">
           {title}
         </div>
         {runError && (
@@ -835,9 +835,9 @@ function CapitalManagementPage() {
       ) : null}
 
       <section className="rounded border border-border bg-surface-1">
-        <div className="flex items-center justify-between gap-2 px-4 py-2 border-b border-border text-[11px] uppercase tracking-widest text-text-secondary font-semibold">
+        <div className="flex items-center justify-between gap-2 px-4 py-2 border-b border-border text-[12px] uppercase tracking-widest text-text-secondary font-semibold">
           <span>Positions</span>
-          <span className="normal-case tracking-normal text-[10px] text-text-secondary">
+          <span className="normal-case tracking-normal text-[11px] text-text-secondary">
             {snapshot ? `Updated ${new Date(snapshot.updatedAt).toLocaleString()}` : "Waiting for data"}
           </span>
         </div>
@@ -854,7 +854,7 @@ function CapitalManagementPage() {
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
-              <thead className="text-[10px] uppercase tracking-wide text-text-secondary">
+              <thead className="text-[11px] uppercase tracking-wide text-text-secondary">
                 <tr>
                   <th className="px-4 py-2 text-left font-medium">Symbol</th>
                   <th className="px-4 py-2 text-right font-medium">Qty</th>
@@ -871,7 +871,7 @@ function CapitalManagementPage() {
                     <td className="px-4 py-2 font-medium text-text-primary">
                       {row.symbol}
                       {row.side === "short" ? (
-                        <span className="ml-1 text-[10px] uppercase tracking-wide text-sell">Short</span>
+                        <span className="ml-1 text-[11px] uppercase tracking-wide text-sell">Short</span>
                       ) : null}
                     </td>
                     <td className="px-4 py-2 text-right tabular-nums text-text-primary">
@@ -892,7 +892,7 @@ function CapitalManagementPage() {
                       }`}
                     >
                       {formatUsd(row.unrealizedPl)}
-                      <span className="ml-1 text-[10px] text-text-secondary">
+                      <span className="ml-1 text-[11px] text-text-secondary">
                         ({formatPct(row.unrealizedPlpc)})
                       </span>
                     </td>
@@ -939,7 +939,7 @@ function MarketResearchPage({
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
         <section className="rounded border border-border bg-surface-1">
-          <div className="px-4 py-2 border-b border-border text-[11px] uppercase tracking-widest text-text-secondary font-semibold">
+          <div className="px-4 py-2 border-b border-border text-[12px] uppercase tracking-widest text-text-secondary font-semibold">
             Daily Brief
           </div>
           <div className="p-4 text-xs text-text-secondary">
@@ -948,7 +948,7 @@ function MarketResearchPage({
         </section>
 
         <section className="rounded border border-border bg-surface-1">
-          <div className="px-4 py-2 border-b border-border text-[11px] uppercase tracking-widest text-text-secondary font-semibold">
+          <div className="px-4 py-2 border-b border-border text-[12px] uppercase tracking-widest text-text-secondary font-semibold">
             Symbol Notes
           </div>
           <div className="p-4 text-xs text-text-secondary">
@@ -974,7 +974,7 @@ function AboutPage() {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 mb-4">
         <section className="rounded border border-border bg-surface-1">
-          <div className="px-4 py-2 border-b border-border text-[11px] uppercase tracking-widest text-text-secondary font-semibold">
+          <div className="px-4 py-2 border-b border-border text-[12px] uppercase tracking-widest text-text-secondary font-semibold">
             How The Algorithm Works
           </div>
           <div className="p-4 text-xs text-text-secondary leading-relaxed">
@@ -1004,7 +1004,7 @@ function AboutPage() {
         </section>
 
         <section className="rounded border border-border bg-surface-1">
-          <div className="px-4 py-2 border-b border-border text-[11px] uppercase tracking-widest text-text-secondary font-semibold">
+          <div className="px-4 py-2 border-b border-border text-[12px] uppercase tracking-widest text-text-secondary font-semibold">
             Build Backtest Scenarios In UI
           </div>
           <div className="p-4 text-xs text-text-secondary leading-relaxed">
@@ -1021,7 +1021,7 @@ function AboutPage() {
       </div>
 
       <section className="rounded border border-border bg-surface-1">
-        <div className="px-4 py-2 border-b border-border text-[11px] uppercase tracking-widest text-text-secondary font-semibold">
+        <div className="px-4 py-2 border-b border-border text-[12px] uppercase tracking-widest text-text-secondary font-semibold">
           Suggested Scenario Workflow
         </div>
         <div className="p-4 text-xs text-text-secondary leading-relaxed">
@@ -1050,9 +1050,9 @@ function StatCard({
 }) {
   return (
     <div className="rounded border border-border bg-surface-1 p-3">
-      <p className="text-[11px] text-text-secondary mb-1">{label}</p>
+      <p className="text-[12px] text-text-secondary mb-1">{label}</p>
       <p className={`text-base font-semibold tabular-nums ${valueClassName}`}>{value}</p>
-      <p className="text-[10px] text-text-secondary mt-0.5">{sub}</p>
+      <p className="text-[11px] text-text-secondary mt-0.5">{sub}</p>
     </div>
   );
 }

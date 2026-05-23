@@ -416,10 +416,10 @@ export default function RunQueueResults({ results }: { results: RunQueueResult[]
           >
             {hasMultipleSymbols && (
               <div className="border-b border-border bg-surface-1 px-4 py-2">
-                <p className="text-[11px] uppercase tracking-widest text-text-secondary font-semibold">
+                <p className="text-[12px] uppercase tracking-widest text-text-secondary font-semibold">
                   Symbol: {group.symbol}
                 </p>
-                <p className="mt-0.5 text-[10px] text-text-secondary">
+                <p className="mt-0.5 text-[11px] text-text-secondary">
                   {group.runs.length} run{group.runs.length !== 1 ? "s" : ""} queued
                 </p>
               </div>
@@ -428,7 +428,7 @@ export default function RunQueueResults({ results }: { results: RunQueueResult[]
             {/* Cumulative stats — only shown when there are non-perpetual runs */}
             {successful.length > 0 && (
               <section className="border-b border-border bg-surface-1 px-4 py-3">
-                <p className="text-[11px] uppercase tracking-widest text-text-secondary font-semibold mb-2">
+                <p className="text-[12px] uppercase tracking-widest text-text-secondary font-semibold mb-2">
                   Avg Strategy Edge
                 </p>
                 <div className="grid grid-cols-4 gap-3">
@@ -457,7 +457,7 @@ export default function RunQueueResults({ results }: { results: RunQueueResult[]
                     n={outVsRandVals.length}
                   />
                 </div>
-                <p className="mt-2 text-[10px] text-text-secondary">
+                <p className="mt-2 text-[11px] text-text-secondary">
                   {successful.length}/{group.runs.length} runs succeeded
                 </p>
               </section>
@@ -466,7 +466,7 @@ export default function RunQueueResults({ results }: { results: RunQueueResult[]
             {/* Combined chart for non-perpetual runs */}
             {chartBars.length > 0 && (allBuyTrades.length > 0 || allSellTrades.length > 0) && (
               <section className="border-b border-border">
-                <div className="px-4 py-2 text-[11px] uppercase tracking-widest text-text-secondary font-semibold">
+                <div className="px-4 py-2 text-[12px] uppercase tracking-widest text-text-secondary font-semibold">
                   All Trades
                 </div>
                 <div className="h-64">
@@ -531,7 +531,7 @@ function PerpetualEquityCurve({
 
   return (
     <div className="px-4 py-2 border-b border-border/50">
-      <p className="text-[10px] text-text-secondary mb-1">Equity curve — cash + position value</p>
+      <p className="text-[11px] text-text-secondary mb-1">Equity curve — cash + position value</p>
       <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-20" preserveAspectRatio="none">
         {/* Buy-paused period shading */}
         {pauseRects.map((r, i) => (
@@ -544,7 +544,7 @@ function PerpetualEquityCurve({
         {/* Total equity */}
         <polyline points={points} fill="none" stroke="#5b8dee" strokeWidth={1.5} />
       </svg>
-      <div className="flex gap-4 mt-1 text-[9px] text-text-secondary">
+      <div className="flex gap-4 mt-1 text-[11px] text-text-secondary">
         <span className="flex items-center gap-1">
           <span className="inline-block w-3 border-t border-accent" />
           Total equity
@@ -579,10 +579,10 @@ function PerpetualRunSection({ r, index }: { r: RunQueueResult; index: number })
     <div className="border-b border-border">
       {/* Header */}
       <div className="px-4 py-2 bg-surface-1 border-b border-border/70 flex items-center gap-3">
-        <span className="text-[10px] text-text-secondary uppercase tracking-wide">#{index + 1}</span>
+        <span className="text-[11px] text-text-secondary uppercase tracking-wide">#{index + 1}</span>
         <span className="text-sm font-semibold text-text-primary">{r.run.symbol}</span>
-        <span className="text-[10px] text-text-secondary">{preset?.label ?? r.run.presetKey}</span>
-        <span className="text-[10px] text-text-secondary tabular-nums ml-auto">
+        <span className="text-[11px] text-text-secondary">{preset?.label ?? r.run.presetKey}</span>
+        <span className="text-[11px] text-text-secondary tabular-nums ml-auto">
           {r.run.startDate} · {r.run.durationDays}d · {fmtUsd(r.run.totalAmount)}
         </span>
       </div>
@@ -617,7 +617,7 @@ function PerpetualRunSection({ r, index }: { r: RunQueueResult; index: number })
           </div>
 
           {/* Position summary */}
-          <div className="px-4 py-2 flex gap-6 text-[11px] border-b border-border/50 flex-wrap">
+          <div className="px-4 py-2 flex gap-6 text-[12px] border-b border-border/50 flex-wrap">
             <MoneyPill label="Invested" value={pr.totalInvested} />
             <MoneyPill label="Proceeds" value={pr.totalProceeds} />
             <MoneyPill label="Final Cash" value={pr.finalCash} />
@@ -656,8 +656,8 @@ function PerpetualRunSection({ r, index }: { r: RunQueueResult; index: number })
           {/* Trade log */}
           {pr.trades.length > 0 && (
             <div className="max-h-72 overflow-auto">
-              <table className="w-full text-[11px]">
-                <thead className="sticky top-0 bg-surface-1 text-[10px] uppercase tracking-wide text-text-secondary">
+              <table className="w-full text-[12px]">
+                <thead className="sticky top-0 bg-surface-1 text-[11px] uppercase tracking-wide text-text-secondary">
                   <tr>
                     <th className="px-3 py-1.5 text-left font-medium">Date</th>
                     <th className="px-3 py-1.5 text-left font-medium">Side</th>
@@ -729,7 +729,7 @@ function CryptoAutotraderEquityCurve({
 
   return (
     <div className="px-4 py-2 border-b border-border/50">
-      <p className="text-[10px] text-text-secondary mb-1">
+      <p className="text-[11px] text-text-secondary mb-1">
         Equity curve — includes long/short position exposure
       </p>
       <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-20" preserveAspectRatio="none">
@@ -745,7 +745,7 @@ function CryptoAutotraderEquityCurve({
         <polyline points={exposurePoints} fill="none" stroke="#22c55e66" strokeWidth={1} />
         <polyline points={points} fill="none" stroke="#5b8dee" strokeWidth={1.5} />
       </svg>
-      <div className="flex gap-4 mt-1 text-[9px] text-text-secondary">
+      <div className="flex gap-4 mt-1 text-[11px] text-text-secondary">
         <span className="flex items-center gap-1">
           <span className="inline-block w-3 border-t border-accent" />
           Total equity
@@ -771,10 +771,10 @@ function CryptoAutotraderRunSection({ r, index }: { r: RunQueueResult; index: nu
   return (
     <div className="border-b border-border">
       <div className="px-4 py-2 bg-surface-1 border-b border-border/70 flex items-center gap-3">
-        <span className="text-[10px] text-text-secondary uppercase tracking-wide">#{index + 1}</span>
+        <span className="text-[11px] text-text-secondary uppercase tracking-wide">#{index + 1}</span>
         <span className="text-sm font-semibold text-text-primary">{r.run.symbol}</span>
-        <span className="text-[10px] text-text-secondary">{preset?.label ?? r.run.presetKey}</span>
-        <span className="text-[10px] text-text-secondary tabular-nums ml-auto">
+        <span className="text-[11px] text-text-secondary">{preset?.label ?? r.run.presetKey}</span>
+        <span className="text-[11px] text-text-secondary tabular-nums ml-auto">
           {r.run.startDate} · {r.run.durationDays}d · {fmtUsd(r.run.totalAmount)}
         </span>
       </div>
@@ -807,7 +807,7 @@ function CryptoAutotraderRunSection({ r, index }: { r: RunQueueResult; index: nu
             />
           </div>
 
-          <div className="px-4 py-2 flex gap-6 text-[11px] border-b border-border/50 flex-wrap">
+          <div className="px-4 py-2 flex gap-6 text-[12px] border-b border-border/50 flex-wrap">
             <MoneyPill label="Final Cash" value={ar.finalCash} />
             <MoneyPill label="Total Equity" value={ar.totalEquity} />
             <MoneyPill label="Final Exposure" value={ar.finalPositionValueSigned} />
@@ -846,11 +846,11 @@ function CryptoAutotraderRunSection({ r, index }: { r: RunQueueResult; index: nu
 
           {roundTrips.length > 0 && (
             <div className="max-h-72 overflow-auto border-t border-border/40">
-              <div className="px-3 py-1.5 text-[10px] uppercase tracking-wide text-text-secondary bg-surface-1 sticky top-0 z-[1]">
+              <div className="px-3 py-1.5 text-[11px] uppercase tracking-wide text-text-secondary bg-surface-1 sticky top-0 z-[1]">
                 Closed Trades (Round Trips)
               </div>
-              <table className="w-full text-[11px]">
-                <thead className="sticky top-7 bg-surface-1 text-[10px] uppercase tracking-wide text-text-secondary">
+              <table className="w-full text-[12px]">
+                <thead className="sticky top-7 bg-surface-1 text-[11px] uppercase tracking-wide text-text-secondary">
                   <tr>
                     <th className="px-3 py-1.5 text-left font-medium">Side</th>
                     <th className="px-3 py-1.5 text-left font-medium">Entry</th>
@@ -918,11 +918,11 @@ function CryptoAutotraderRunSection({ r, index }: { r: RunQueueResult; index: nu
 
           {shortSaleGroups.length > 0 && (
             <div className="max-h-80 overflow-auto border-t border-border/40">
-              <div className="px-3 py-1.5 text-[10px] uppercase tracking-wide text-text-secondary bg-surface-1 sticky top-0 z-[1]">
+              <div className="px-3 py-1.5 text-[11px] uppercase tracking-wide text-text-secondary bg-surface-1 sticky top-0 z-[1]">
                 Short Sales Grouped With Covers
               </div>
-              <table className="w-full text-[11px]">
-                <thead className="sticky top-7 bg-surface-1 text-[10px] uppercase tracking-wide text-text-secondary">
+              <table className="w-full text-[12px]">
+                <thead className="sticky top-7 bg-surface-1 text-[11px] uppercase tracking-wide text-text-secondary">
                   <tr>
                     <th className="px-3 py-1.5 text-left font-medium">Short</th>
                     <th className="px-3 py-1.5 text-left font-medium">Leg</th>
@@ -1017,11 +1017,11 @@ function CryptoAutotraderRunSection({ r, index }: { r: RunQueueResult; index: nu
 
           {ar.trades.length > 0 && (
             <div className="max-h-72 overflow-auto border-t border-border/40">
-              <div className="px-3 py-1.5 text-[10px] uppercase tracking-wide text-text-secondary bg-surface-1 sticky top-0 z-[1]">
+              <div className="px-3 py-1.5 text-[11px] uppercase tracking-wide text-text-secondary bg-surface-1 sticky top-0 z-[1]">
                 Execution Log
               </div>
-              <table className="w-full text-[11px]">
-                <thead className="sticky top-7 bg-surface-1 text-[10px] uppercase tracking-wide text-text-secondary">
+              <table className="w-full text-[12px]">
+                <thead className="sticky top-7 bg-surface-1 text-[11px] uppercase tracking-wide text-text-secondary">
                   <tr>
                     <th className="px-3 py-1.5 text-left font-medium">Date</th>
                     <th className="px-3 py-1.5 text-left font-medium">Side</th>
@@ -1095,10 +1095,10 @@ function CryptoTrendConfidenceRunSection({ r, index }: { r: RunQueueResult; inde
   return (
     <div className="border-b border-border">
       <div className="px-4 py-2 bg-surface-1 border-b border-border/70 flex items-center gap-3">
-        <span className="text-[10px] text-text-secondary uppercase tracking-wide">#{index + 1}</span>
+        <span className="text-[11px] text-text-secondary uppercase tracking-wide">#{index + 1}</span>
         <span className="text-sm font-semibold text-text-primary">{r.run.symbol}</span>
-        <span className="text-[10px] text-text-secondary">{preset?.label ?? r.run.presetKey}</span>
-        <span className="text-[10px] text-text-secondary tabular-nums ml-auto">
+        <span className="text-[11px] text-text-secondary">{preset?.label ?? r.run.presetKey}</span>
+        <span className="text-[11px] text-text-secondary tabular-nums ml-auto">
           {r.run.startDate} · {r.run.durationDays}d · {fmtUsd(r.run.totalAmount)}
         </span>
       </div>
@@ -1107,7 +1107,7 @@ function CryptoTrendConfidenceRunSection({ r, index }: { r: RunQueueResult; inde
 
       {tr && (
         <>
-          <div className="px-4 py-2 flex gap-6 text-[11px] border-b border-border/50 flex-wrap">
+          <div className="px-4 py-2 flex gap-6 text-[12px] border-b border-border/50 flex-wrap">
             <span className="text-text-secondary">
               EMA pair{" "}
               <span className="font-semibold text-text-primary">
@@ -1151,8 +1151,8 @@ function CryptoTrendConfidenceRunSection({ r, index }: { r: RunQueueResult; inde
           )}
 
           <div className="max-h-72 overflow-auto">
-            <table className="w-full text-[11px]">
-              <thead className="sticky top-0 bg-surface-1 text-[10px] uppercase tracking-wide text-text-secondary">
+            <table className="w-full text-[12px]">
+              <thead className="sticky top-0 bg-surface-1 text-[11px] uppercase tracking-wide text-text-secondary">
                 <tr>
                   <th className="px-3 py-1.5 text-left font-medium">Region</th>
                   <th className="px-3 py-1.5 text-left font-medium">Status</th>
@@ -1237,11 +1237,11 @@ function StatCell({
 }) {
   return (
     <div className="rounded border border-border bg-surface-2 px-3 py-2">
-      <p className="text-[10px] text-text-secondary">{label}</p>
+      <p className="text-[11px] text-text-secondary">{label}</p>
       <p className={`text-sm font-semibold tabular-nums mt-0.5 ${positive ? "text-buy" : "text-sell"}`}>
         {value}
       </p>
-      {sub && <p className="text-[10px] text-text-secondary tabular-nums mt-0.5">{sub}</p>}
+      {sub && <p className="text-[11px] text-text-secondary tabular-nums mt-0.5">{sub}</p>}
     </div>
   );
 }
@@ -1260,10 +1260,10 @@ function RunSection({ r, index }: { r: RunQueueResult; index: number }) {
   return (
     <div className="border-b border-border">
       <div className="px-4 py-2 bg-surface-1 border-b border-border/70 flex items-center gap-3">
-        <span className="text-[10px] text-text-secondary uppercase tracking-wide">#{index + 1}</span>
+        <span className="text-[11px] text-text-secondary uppercase tracking-wide">#{index + 1}</span>
         <span className="text-sm font-semibold text-text-primary">{r.run.symbol}</span>
-        <span className="text-[10px] text-text-secondary">{preset?.label ?? r.run.presetKey}</span>
-        <span className="text-[10px] text-text-secondary tabular-nums ml-auto">
+        <span className="text-[11px] text-text-secondary">{preset?.label ?? r.run.presetKey}</span>
+        <span className="text-[11px] text-text-secondary tabular-nums ml-auto">
           {r.run.startDate} · {r.run.durationDays}d · {fmtUsd(r.run.totalAmount)}
         </span>
       </div>
@@ -1274,21 +1274,21 @@ function RunSection({ r, index }: { r: RunQueueResult; index: number }) {
 
       {recommendation && (
         <div className="px-4 py-2 border-b border-border/50 bg-surface-1/50">
-          <p className="text-[10px] uppercase tracking-widest text-text-secondary">Market condition</p>
+          <p className="text-[11px] uppercase tracking-widest text-text-secondary">Market condition</p>
           <p className="mt-0.5 text-xs text-text-primary">
             {formatConditionLabel(recommendation.condition)} · confidence {fmtPct(recommendation.confidence * 100)}
           </p>
-          <p className="mt-0.5 text-[11px] text-text-secondary">
+          <p className="mt-0.5 text-[12px] text-text-secondary">
             Recommended strategy: <span className="text-text-primary">{recommendation.recommendation.label}</span>
           </p>
-          <p className="mt-0.5 text-[10px] text-text-secondary">{recommendation.recommendation.note}</p>
+          <p className="mt-0.5 text-[11px] text-text-secondary">{recommendation.recommendation.note}</p>
         </div>
       )}
 
       {res && (
         <>
           {/* Comparison metrics */}
-          <div className="px-4 py-2 flex gap-6 text-[11px] border-b border-border/50 flex-wrap">
+          <div className="px-4 py-2 flex gap-6 text-[12px] border-b border-border/50 flex-wrap">
             {inComp && phase !== "scale_out" && (
               <>
                 <ComparisonPill
@@ -1363,7 +1363,7 @@ function ComparisonChip({
   if (value === null || n === 0) {
     return (
       <div className="rounded border border-border bg-surface-2 px-3 py-2">
-        <p className="text-[10px] text-text-secondary">{label}</p>
+        <p className="text-[11px] text-text-secondary">{label}</p>
         <p className="text-sm font-semibold text-text-secondary mt-0.5">—</p>
       </div>
     );
@@ -1371,12 +1371,12 @@ function ComparisonChip({
   const positive = value >= 0;
   return (
     <div className="rounded border border-border bg-surface-2 px-3 py-2">
-      <p className="text-[10px] text-text-secondary">{label}</p>
+      <p className="text-[11px] text-text-secondary">{label}</p>
       <p className={`text-sm font-semibold tabular-nums mt-0.5 ${positive ? "text-buy" : "text-sell"}`}>
         {fmtPct(value)}
       </p>
       {wr !== null && (
-        <p className="text-[10px] text-text-secondary mt-0.5 tabular-nums">
+        <p className="text-[11px] text-text-secondary mt-0.5 tabular-nums">
           {wr.toFixed(0)}% win · {n} run{n !== 1 ? "s" : ""}
         </p>
       )}

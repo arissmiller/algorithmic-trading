@@ -15,16 +15,16 @@ export default function BacktestComparisonTable({ rows, onClear }: Props) {
   return (
     <section className="border-b border-border bg-surface-1">
       <div className="px-3 py-2 flex items-center gap-2 border-b border-border">
-        <p className="text-[11px] uppercase tracking-widest text-text-secondary font-semibold">
+        <p className="text-[12px] uppercase tracking-widest text-text-secondary font-semibold">
           Parameter Comparison
         </p>
-        <span className="text-[10px] text-text-secondary">
+        <span className="text-[11px] text-text-secondary">
           {rows.length} rows
         </span>
         <button
           type="button"
           onClick={onClear}
-          className="ml-auto rounded border border-border bg-surface-2 px-2 py-1 text-[10px] text-text-secondary hover:text-text-primary"
+          className="ml-auto rounded border border-border bg-surface-2 px-2 py-1 text-[11px] text-text-secondary hover:text-text-primary"
         >
           Clear
         </button>
