@@ -20,6 +20,10 @@ const STOCK_BENCHMARK_SYMBOL = "^GSPC";
 const CRYPTO_BENCHMARK_SYMBOL = "BTC/USD";
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/+$/, "");
 const API_PREFIX = API_BASE_URL ? `${API_BASE_URL}/api` : "/api";
+const ADVANCED_INDUSTRIALS_PORTFOLIO_KEY = "advanced_industrials_automation";
+const ADVANCED_INDUSTRIALS_PORTFOLIO_NAME = "Advanced Industrials and Automation Portfolio";
+const ENTERPRISE_SOFTWARE_PORTFOLIO_KEY = "enterprise_software";
+const ENTERPRISE_SOFTWARE_PORTFOLIO_NAME = "Enterprise Software Portfolio";
 
 type AlpacaAccountSnapshot = {
   account: {
@@ -55,8 +59,10 @@ type AppPage =
   | "crypto_backtest"
   | "crypto_selloff_detection"
   | "portfolio_vs_sp500"
-  | "live_portfolio"
-  | "live_portfolio_backtest";
+  | "advanced_industrials_live"
+  | "advanced_industrials_backtest"
+  | "enterprise_software_live"
+  | "enterprise_software_backtest";
 type MarketBarsPayload = { bars: Bar[]; earningsEvents: EarningsEvent[] };
 
 const APP_PAGE_GROUPS: Array<{ label: string; pages: Array<{ id: AppPage; label: string }> }> = [
@@ -70,10 +76,12 @@ const APP_PAGE_GROUPS: Array<{ label: string; pages: Array<{ id: AppPage; label:
     ],
   },
   {
-    label: "Live Portfolio",
+    label: "Live Portfolios",
     pages: [
-      { id: "live_portfolio", label: "Live Portfolio" },
-      { id: "live_portfolio_backtest", label: "Live Portfolio Backtest" },
+      { id: "advanced_industrials_live", label: "Adv Industrials Live" },
+      { id: "advanced_industrials_backtest", label: "Adv Industrials Backtest" },
+      { id: "enterprise_software_live", label: "Enterprise Software Live" },
+      { id: "enterprise_software_backtest", label: "Enterprise Software Backtest" },
     ],
   },
 ];
@@ -613,17 +621,39 @@ export default function App() {
           />
         )}
 
-        {activePage === "live_portfolio" && (
+        {activePage === "advanced_industrials_live" && (
           <LivePortfolioPage
-            key="live_portfolio"
+            key="advanced_industrials_live"
             apiPrefix={API_PREFIX}
+            portfolioKey={ADVANCED_INDUSTRIALS_PORTFOLIO_KEY}
+            defaultPortfolioName={ADVANCED_INDUSTRIALS_PORTFOLIO_NAME}
           />
         )}
 
-        {activePage === "live_portfolio_backtest" && (
+        {activePage === "advanced_industrials_backtest" && (
           <LivePortfolioBacktestPage
-            key="live_portfolio_backtest"
+            key="advanced_industrials_backtest"
             apiPrefix={API_PREFIX}
+            portfolioKey={ADVANCED_INDUSTRIALS_PORTFOLIO_KEY}
+            defaultPortfolioName={ADVANCED_INDUSTRIALS_PORTFOLIO_NAME}
+          />
+        )}
+
+        {activePage === "enterprise_software_live" && (
+          <LivePortfolioPage
+            key="enterprise_software_live"
+            apiPrefix={API_PREFIX}
+            portfolioKey={ENTERPRISE_SOFTWARE_PORTFOLIO_KEY}
+            defaultPortfolioName={ENTERPRISE_SOFTWARE_PORTFOLIO_NAME}
+          />
+        )}
+
+        {activePage === "enterprise_software_backtest" && (
+          <LivePortfolioBacktestPage
+            key="enterprise_software_backtest"
+            apiPrefix={API_PREFIX}
+            portfolioKey={ENTERPRISE_SOFTWARE_PORTFOLIO_KEY}
+            defaultPortfolioName={ENTERPRISE_SOFTWARE_PORTFOLIO_NAME}
           />
         )}
       </main>

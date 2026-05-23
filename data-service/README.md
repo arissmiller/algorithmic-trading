@@ -46,6 +46,7 @@ Watchlist routes remain enabled:
 - `GET /api/bot/live-signals/status`
 - `GET /api/bot/portfolio`
 - `PUT /api/bot/portfolio`
+  - Optional query param: `portfolio=<portfolio-key>`
 - `GET /api/bot/paper-runner`
 - `GET /api/bot/paper-runner/:id`
 - `GET /api/bot/strategy-profiles`
@@ -92,6 +93,9 @@ Current watchlist behavior:
 Live portfolio behavior:
 
 - Portfolio allocations/thresholds are file-backed at `data-service/live-portfolio-state.json` by default.
+- Supports multiple named portfolios using `defaultPortfolioKey` + `portfolios[]` in the state file.
+- Each portfolio can optionally define a `whitepaper` object (`title`, `url`, `aiGenerated`, optional `disclosure`) for UI linking and AI-origin transparency.
+- Each portfolio can optionally define `launchedAt` (any valid date string) to display a stable "Live since ..." day in the live portfolio header.
 - Edit that file directly to control target percentages.
 - The service auto-reloads file edits on the next portfolio request.
 

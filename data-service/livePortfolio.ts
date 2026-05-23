@@ -11,6 +11,9 @@ const LIVE_PORTFOLIO_SNAPSHOT_TTL_MS = parsePositiveInt(
 );
 const SIGNAL_WINDOWS_DAYS = [7, 30, 90] as const;
 const MAX_ALLOCATIONS = 40;
+const MAX_PORTFOLIOS = 20;
+const DEFAULT_PORTFOLIO_KEY = "live_portfolio";
+const DEFAULT_PORTFOLIO_NAME = "Live Portfolio";
 
 const BUY_OVER_TIME_SIGNALS: SignalWeight[] = [
   { signal: { type: "price_vs_sma", period: 30 }, weight: 0.35 },
@@ -21,12 +24,31 @@ const BUY_OVER_TIME_SIGNALS: SignalWeight[] = [
 export interface LivePortfolioAllocation {
   symbol: string;
   targetPct: number;
+  summary?: string;
+  wikipediaUrl?: string;
+}
+
+export interface LivePortfolioWhitepaper {
+  title: string;
+  url: string;
+  aiGenerated: boolean;
+  disclosure?: string;
 }
 
 export interface LivePortfolioConfig {
+  key: string;
+  name: string;
   allocations: LivePortfolioAllocation[];
+  whitepaper?: LivePortfolioWhitepaper;
+  launchedAt?: string;
   buyThreshold: number;
   sellThreshold: number;
+  updatedAt: string;
+}
+
+export interface LivePortfolioState {
+  defaultPortfolioKey: string;
+  portfolios: LivePortfolioConfig[];
   updatedAt: string;
 }
 
@@ -44,11 +66,17 @@ export interface LivePortfolioHoldingSnapshot {
   symbol: string;
   targetPct: number;
   normalizedTargetPct: number;
+  summary: string | null;
+  wikipediaUrl: string | null;
   lastPrice: number | null;
   signals: LivePortfolioSignalWindow[];
 }
 
 export interface LivePortfolioSnapshot {
+  portfolioKey: string;
+  portfolioName: string;
+  whitepaper: LivePortfolioWhitepaper | null;
+  launchedAt: string | null;
   algorithm: "buy_over_time";
   buyThreshold: number;
   sellThreshold: number;
@@ -58,92 +86,147 @@ export interface LivePortfolioSnapshot {
   holdings: LivePortfolioHoldingSnapshot[];
 }
 
-interface PersistedPortfolioState {
+interface PersistedPortfolioConfig {
+  key?: unknown;
+  name?: unknown;
   allocations?: unknown;
+  whitepaper?: unknown;
+  launchedAt?: unknown;
   buyThreshold?: unknown;
   sellThreshold?: unknown;
   updatedAt?: unknown;
 }
 
-let configState: LivePortfolioConfig = buildDefaultConfig();
+interface PersistedPortfolioState {
+  defaultPortfolioKey?: unknown;
+  portfolios?: unknown;
+  updatedAt?: unknown;
+  // Legacy single-portfolio shape support.
+  key?: unknown;
+  name?: unknown;
+  allocations?: unknown;
+  whitepaper?: unknown;
+  launchedAt?: unknown;
+  buyThreshold?: unknown;
+  sellThreshold?: unknown;
+}
+
+let configState: LivePortfolioState = buildDefaultState();
 let persistChain: Promise<void> = Promise.resolve();
-let cachedSnapshot: LivePortfolioSnapshot | null = null;
-let cachedSnapshotAtMs = 0;
+let cachedSnapshotsByKey = new Map<string, { snapshot: LivePortfolioSnapshot; cachedAtMs: number }>();
 let loadedStateMtimeMs = 0;
 
 export async function loadLivePortfolioState(): Promise<void> {
   const loaded = await loadConfigFromDisk();
   if (loaded) {
-    configState = loaded.config;
+    configState = loaded.state;
     loadedStateMtimeMs = loaded.mtimeMs;
   } else {
-    configState = buildDefaultConfig();
+    configState = buildDefaultState();
     loadedStateMtimeMs = Date.now();
   }
   invalidateSnapshotCache();
 }
 
-export async function getLivePortfolioConfig(): Promise<LivePortfolioConfig> {
+export async function getLivePortfolioConfig(portfolioKey?: string): Promise<LivePortfolioConfig> {
   await syncConfigFromDiskIfChanged();
-  return cloneConfig(configState);
+  const portfolio = resolvePortfolioConfig(portfolioKey);
+  return clonePortfolioConfig(portfolio);
 }
 
-export async function updateLivePortfolioConfig(input: unknown): Promise<LivePortfolioConfig> {
+export async function updateLivePortfolioConfig(
+  input: unknown,
+  portfolioKey?: string
+): Promise<LivePortfolioConfig> {
+  await syncConfigFromDiskIfChanged();
+
   if (!isRecord(input)) {
     throw new Error("Portfolio payload must be a JSON object.");
   }
 
+  const portfolio = resolvePortfolioConfig(portfolioKey);
+  const hasName = Object.prototype.hasOwnProperty.call(input, "name");
   const hasAllocations = Object.prototype.hasOwnProperty.call(input, "allocations");
+  const hasWhitepaper = Object.prototype.hasOwnProperty.call(input, "whitepaper");
+  const hasLaunchedAt = Object.prototype.hasOwnProperty.call(input, "launchedAt");
   const hasBuyThreshold = Object.prototype.hasOwnProperty.call(input, "buyThreshold");
   const hasSellThreshold = Object.prototype.hasOwnProperty.call(input, "sellThreshold");
 
-  if (!hasAllocations && !hasBuyThreshold && !hasSellThreshold) {
-    throw new Error("Provide at least one of allocations, buyThreshold, or sellThreshold.");
+  if (
+    !hasName &&
+    !hasAllocations &&
+    !hasWhitepaper &&
+    !hasLaunchedAt &&
+    !hasBuyThreshold &&
+    !hasSellThreshold
+  ) {
+    throw new Error(
+      "Provide at least one of name, allocations, whitepaper, launchedAt, buyThreshold, or sellThreshold."
+    );
   }
 
+  const name = hasName ? parsePortfolioName(input.name) : portfolio.name;
   const allocations = hasAllocations
     ? parseAllocationsInput(input.allocations)
-    : configState.allocations;
+    : portfolio.allocations;
+  const whitepaper = hasWhitepaper ? parseOptionalWhitepaper(input.whitepaper) : portfolio.whitepaper;
+  const launchedAt = hasLaunchedAt
+    ? parseOptionalPortfolioLaunchDate(input.launchedAt)
+    : portfolio.launchedAt;
   const buyThreshold = hasBuyThreshold
     ? parseThreshold(input.buyThreshold, "buyThreshold")
-    : configState.buyThreshold;
+    : portfolio.buyThreshold;
   const sellThreshold = hasSellThreshold
     ? parseThreshold(input.sellThreshold, "sellThreshold")
-    : configState.sellThreshold;
+    : portfolio.sellThreshold;
 
   if (sellThreshold >= buyThreshold) {
     throw new Error("sellThreshold must be less than buyThreshold.");
   }
 
-  const next: LivePortfolioConfig = {
+  const updatedAt = new Date().toISOString();
+  const nextPortfolio: LivePortfolioConfig = {
+    key: portfolio.key,
+    name,
     allocations,
+    ...(whitepaper ? { whitepaper } : {}),
+    ...(launchedAt ? { launchedAt } : {}),
     buyThreshold,
     sellThreshold,
-    updatedAt: new Date().toISOString(),
+    updatedAt,
   };
 
-  configState = next;
+  const nextPortfolios = configState.portfolios.map((item) =>
+    item.key === portfolio.key ? nextPortfolio : item
+  );
+  configState = {
+    ...configState,
+    portfolios: nextPortfolios,
+    updatedAt,
+  };
+
   await persistConfig();
   invalidateSnapshotCache();
-  return cloneConfig(configState);
+  return clonePortfolioConfig(nextPortfolio);
 }
 
-export async function getLivePortfolioSnapshot(): Promise<LivePortfolioSnapshot> {
+export async function getLivePortfolioSnapshot(portfolioKey?: string): Promise<LivePortfolioSnapshot> {
   await syncConfigFromDiskIfChanged();
-  const cacheIsFresh =
-    cachedSnapshot && Date.now() - cachedSnapshotAtMs < LIVE_PORTFOLIO_SNAPSHOT_TTL_MS;
-  if (cacheIsFresh && cachedSnapshot) {
-    return cloneSnapshot(cachedSnapshot);
+  const portfolio = resolvePortfolioConfig(portfolioKey);
+
+  const cached = cachedSnapshotsByKey.get(portfolio.key);
+  if (cached && Date.now() - cached.cachedAtMs < LIVE_PORTFOLIO_SNAPSHOT_TTL_MS) {
+    return cloneSnapshot(cached.snapshot);
   }
 
   const generatedAt = new Date().toISOString();
-  const totalRequestedPct = configState.allocations.reduce(
+  const totalRequestedPct = portfolio.allocations.reduce(
     (sum, allocation) => sum + allocation.targetPct,
     0
   );
 
   const holdings = await Promise.all(
-    configState.allocations.map(async (allocation) => {
+    portfolio.allocations.map(async (allocation) => {
       const normalizedTargetPct =
         totalRequestedPct > 0 ? (allocation.targetPct / totalRequestedPct) * 100 : 0;
       try {
@@ -163,13 +246,15 @@ export async function getLivePortfolioSnapshot(): Promise<LivePortfolioSnapshot>
 
         const lastPrice = bars[bars.length - 1]?.c ?? null;
         const signals = SIGNAL_WINDOWS_DAYS.map((timeframeDays) =>
-          buildWindowSignal(bars, timeframeDays)
+          buildWindowSignal(bars, timeframeDays, portfolio.buyThreshold, portfolio.sellThreshold)
         );
 
         return {
           symbol: allocation.symbol,
           targetPct: allocation.targetPct,
           normalizedTargetPct,
+          summary: allocation.summary ?? null,
+          wikipediaUrl: allocation.wikipediaUrl ?? null,
           lastPrice,
           signals,
         } satisfies LivePortfolioHoldingSnapshot;
@@ -188,6 +273,8 @@ export async function getLivePortfolioSnapshot(): Promise<LivePortfolioSnapshot>
           symbol: allocation.symbol,
           targetPct: allocation.targetPct,
           normalizedTargetPct,
+          summary: allocation.summary ?? null,
+          wikipediaUrl: allocation.wikipediaUrl ?? null,
           lastPrice: null,
           signals,
         } satisfies LivePortfolioHoldingSnapshot;
@@ -196,23 +283,31 @@ export async function getLivePortfolioSnapshot(): Promise<LivePortfolioSnapshot>
   );
 
   const snapshot: LivePortfolioSnapshot = {
+    portfolioKey: portfolio.key,
+    portfolioName: portfolio.name,
+    whitepaper: portfolio.whitepaper ? cloneWhitepaper(portfolio.whitepaper) : null,
+    launchedAt: portfolio.launchedAt ?? null,
     algorithm: "buy_over_time",
-    buyThreshold: configState.buyThreshold,
-    sellThreshold: configState.sellThreshold,
+    buyThreshold: portfolio.buyThreshold,
+    sellThreshold: portfolio.sellThreshold,
     totalRequestedPct,
     generatedAt,
-    updatedAt: configState.updatedAt,
+    updatedAt: portfolio.updatedAt,
     holdings,
   };
 
-  cachedSnapshot = snapshot;
-  cachedSnapshotAtMs = Date.now();
+  cachedSnapshotsByKey.set(portfolio.key, {
+    snapshot,
+    cachedAtMs: Date.now(),
+  });
   return cloneSnapshot(snapshot);
 }
 
 function buildWindowSignal(
   bars: Bar[],
-  timeframeDays: (typeof SIGNAL_WINDOWS_DAYS)[number]
+  timeframeDays: (typeof SIGNAL_WINDOWS_DAYS)[number],
+  buyThreshold: number,
+  sellThreshold: number
 ): LivePortfolioSignalWindow {
   if (bars.length === 0) {
     return {
@@ -249,7 +344,7 @@ function buildWindowSignal(
 
   const averageScore = scoreCount > 0 ? scoreSum / scoreCount : null;
   const latestScore = compositeScore(BUY_OVER_TIME_SIGNALS, bars, lastIndex);
-  const action = resolveAction(averageScore, configState.buyThreshold, configState.sellThreshold);
+  const action = resolveAction(averageScore, buyThreshold, sellThreshold);
   const barTime = bars[lastIndex]?.t ?? null;
   const latestRationale = scoreRationale(BUY_OVER_TIME_SIGNALS, bars, lastIndex, false);
   const rationale =
@@ -279,66 +374,173 @@ function resolveAction(
   return "hold";
 }
 
-function buildDefaultConfig(): LivePortfolioConfig {
+function buildDefaultState(): LivePortfolioState {
   const seededAllocations = parseEnvAllocations(process.env.LIVE_PORTFOLIO_ALLOCATIONS ?? "");
   const defaultAllocations =
     seededAllocations.length > 0 ? seededAllocations : [{ symbol: "SPY", targetPct: 100 }];
-
-  return {
+  const updatedAt = new Date().toISOString();
+  const portfolio: LivePortfolioConfig = {
+    key: DEFAULT_PORTFOLIO_KEY,
+    name: DEFAULT_PORTFOLIO_NAME,
     allocations: defaultAllocations,
     buyThreshold: 0.6,
     sellThreshold: 0.4,
-    updatedAt: new Date().toISOString(),
+    updatedAt,
   };
-}
-
-function normalizePersistedConfig(raw: PersistedPortfolioState): LivePortfolioConfig {
-  const fallback = buildDefaultConfig();
-  const allocations =
-    raw && Object.prototype.hasOwnProperty.call(raw, "allocations")
-      ? parseAllocationsInput(raw.allocations)
-      : fallback.allocations;
-  const buyThreshold = parseOptionalThreshold(raw.buyThreshold, fallback.buyThreshold);
-  const sellThreshold = parseOptionalThreshold(raw.sellThreshold, fallback.sellThreshold);
-  const updatedAt =
-    typeof raw.updatedAt === "string" && Number.isFinite(Date.parse(raw.updatedAt))
-      ? raw.updatedAt
-      : fallback.updatedAt;
-
-  if (sellThreshold >= buyThreshold) {
-    throw new Error("Persisted portfolio config is invalid: sellThreshold must be less than buyThreshold.");
-  }
 
   return {
-    allocations,
-    buyThreshold,
-    sellThreshold,
+    defaultPortfolioKey: portfolio.key,
+    portfolios: [portfolio],
     updatedAt,
   };
 }
 
+function normalizePersistedState(raw: PersistedPortfolioState): LivePortfolioState {
+  const fallback = buildDefaultState();
+  const fallbackPortfolio = fallback.portfolios[0];
+
+  if (Array.isArray(raw.portfolios)) {
+    const portfolios = parsePersistedPortfolios(raw.portfolios, fallbackPortfolio);
+    if (portfolios.length > 0) {
+      const fallbackKey = portfolios[0].key;
+      const defaultPortfolioKey = parseOptionalPortfolioKey(raw.defaultPortfolioKey, fallbackKey);
+      const existingDefault = portfolios.some((portfolio) => portfolio.key === defaultPortfolioKey)
+        ? defaultPortfolioKey
+        : fallbackKey;
+      const updatedAt = parseOptionalIsoTimestamp(raw.updatedAt, fallback.updatedAt);
+      return {
+        defaultPortfolioKey: existingDefault,
+        portfolios,
+        updatedAt,
+      };
+    }
+  }
+
+  const allocations = Object.prototype.hasOwnProperty.call(raw, "allocations")
+    ? parseAllocationsInput(raw.allocations)
+    : fallbackPortfolio.allocations;
+  const buyThreshold = parseOptionalThreshold(raw.buyThreshold, fallbackPortfolio.buyThreshold);
+  const sellThreshold = parseOptionalThreshold(raw.sellThreshold, fallbackPortfolio.sellThreshold);
+  if (sellThreshold >= buyThreshold) {
+    throw new Error("Persisted portfolio config is invalid: sellThreshold must be less than buyThreshold.");
+  }
+
+  const updatedAt = parseOptionalIsoTimestamp(raw.updatedAt, fallbackPortfolio.updatedAt);
+  const name = parseOptionalPortfolioName(raw.name, fallbackPortfolio.name);
+  const derivedDefaultKey = parseOptionalPortfolioKey(raw.key, slugifyPortfolioKey(name));
+  const whitepaper = parseOptionalWhitepaper(raw.whitepaper);
+  const launchedAt = parseOptionalPortfolioLaunchDate(raw.launchedAt);
+  const portfolio: LivePortfolioConfig = {
+    key: derivedDefaultKey,
+    name,
+    allocations,
+    ...(whitepaper ? { whitepaper } : {}),
+    ...(launchedAt ? { launchedAt } : {}),
+    buyThreshold,
+    sellThreshold,
+    updatedAt,
+  };
+
+  return {
+    defaultPortfolioKey: portfolio.key,
+    portfolios: [portfolio],
+    updatedAt,
+  };
+}
+
+function parsePersistedPortfolios(
+  value: unknown[],
+  fallbackPortfolio: LivePortfolioConfig
+): LivePortfolioConfig[] {
+  if (value.length > MAX_PORTFOLIOS) {
+    throw new Error(`Persisted state supports at most ${MAX_PORTFOLIOS} portfolios.`);
+  }
+
+  const usedKeys = new Set<string>();
+  return value.map((entry, index) => {
+    if (!isRecord(entry)) {
+      throw new Error(`Persisted portfolio at index ${index} must be an object.`);
+    }
+
+    const nameFallback = `Portfolio ${index + 1}`;
+    const name = parseOptionalPortfolioName(entry.name, nameFallback);
+    const key = parseOptionalPortfolioKey(entry.key, slugifyPortfolioKey(name));
+    if (usedKeys.has(key)) {
+      throw new Error(`Duplicate portfolio key "${key}" in persisted state.`);
+    }
+    usedKeys.add(key);
+
+    const allocations = Object.prototype.hasOwnProperty.call(entry, "allocations")
+      ? parseAllocationsInput(entry.allocations)
+      : fallbackPortfolio.allocations;
+    const whitepaper = parseOptionalWhitepaper(entry.whitepaper);
+    const launchedAt = parseOptionalPortfolioLaunchDate(entry.launchedAt);
+    const buyThreshold = parseOptionalThreshold(entry.buyThreshold, fallbackPortfolio.buyThreshold);
+    const sellThreshold = parseOptionalThreshold(entry.sellThreshold, fallbackPortfolio.sellThreshold);
+    if (sellThreshold >= buyThreshold) {
+      throw new Error(
+        `Persisted portfolio "${key}" is invalid: sellThreshold must be less than buyThreshold.`
+      );
+    }
+
+    const updatedAt = parseOptionalIsoTimestamp(entry.updatedAt, fallbackPortfolio.updatedAt);
+    return {
+      key,
+      name,
+      allocations,
+      ...(whitepaper ? { whitepaper } : {}),
+      ...(launchedAt ? { launchedAt } : {}),
+      buyThreshold,
+      sellThreshold,
+      updatedAt,
+    };
+  });
+}
+
 function parseAllocationsInput(value: unknown): LivePortfolioAllocation[] {
   if (!Array.isArray(value)) {
-    throw new Error("allocations must be an array of { symbol, targetPct }.");
+    throw new Error("allocations must be an array of { symbol, targetPct, summary?, wikipediaUrl? }.");
   }
   if (value.length > MAX_ALLOCATIONS) {
     throw new Error(`allocations supports at most ${MAX_ALLOCATIONS} symbols.`);
   }
 
-  const mergedBySymbol = new Map<string, number>();
+  const mergedBySymbol = new Map<
+    string,
+    { targetPct: number; summary?: string; wikipediaUrl?: string }
+  >();
   for (const row of value) {
     if (!isRecord(row)) {
       throw new Error("Each allocation must be an object.");
     }
     const symbol = normalizeSymbol(row.symbol);
     const targetPct = parseTargetPct(row.targetPct);
-    mergedBySymbol.set(symbol, (mergedBySymbol.get(symbol) ?? 0) + targetPct);
+    const summary = parseOptionalAllocationSummary(row.summary);
+    const wikipediaUrl = parseOptionalWikipediaUrl(row.wikipediaUrl);
+    const existing = mergedBySymbol.get(symbol);
+    if (existing) {
+      mergedBySymbol.set(symbol, {
+        targetPct: existing.targetPct + targetPct,
+        summary: existing.summary ?? summary,
+        wikipediaUrl: existing.wikipediaUrl ?? wikipediaUrl,
+      });
+      continue;
+    }
+    mergedBySymbol.set(symbol, {
+      targetPct,
+      summary,
+      wikipediaUrl,
+    });
   }
 
-  return Array.from(mergedBySymbol.entries()).map(([symbol, targetPct]) => ({
-    symbol,
-    targetPct,
-  }));
+  return Array.from(mergedBySymbol.entries()).map(([symbol, allocation]) => {
+    return {
+      symbol,
+      targetPct: allocation.targetPct,
+      ...(allocation.summary ? { summary: allocation.summary } : {}),
+      ...(allocation.wikipediaUrl ? { wikipediaUrl: allocation.wikipediaUrl } : {}),
+    };
+  });
 }
 
 function parseEnvAllocations(value: string): LivePortfolioAllocation[] {
@@ -393,6 +595,175 @@ function parseTargetPct(value: unknown): number {
   return value;
 }
 
+function parseOptionalAllocationSummary(value: unknown): string | undefined {
+  if (value == null) return undefined;
+  if (typeof value !== "string") {
+    throw new Error("summary must be a string when provided.");
+  }
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  if (trimmed.length > 220) {
+    throw new Error("summary must be 220 characters or fewer.");
+  }
+  return trimmed;
+}
+
+function parseOptionalWikipediaUrl(value: unknown): string | undefined {
+  if (value == null) return undefined;
+  if (typeof value !== "string") {
+    throw new Error("wikipediaUrl must be a string when provided.");
+  }
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    throw new Error(`Invalid wikipediaUrl "${value}".`);
+  }
+
+  const hostname = parsed.hostname.toLowerCase();
+  if (parsed.protocol !== "https:" || !hostname.endsWith("wikipedia.org")) {
+    throw new Error("wikipediaUrl must be an https link to wikipedia.org.");
+  }
+  return trimmed;
+}
+
+function parseOptionalWhitepaper(value: unknown): LivePortfolioWhitepaper | undefined {
+  if (value == null) return undefined;
+  if (!isRecord(value)) {
+    throw new Error("whitepaper must be an object when provided.");
+  }
+
+  const title = parseWhitepaperTitle(value.title);
+  const url = parseWhitepaperUrl(value.url);
+  const aiGenerated = parseWhitepaperAiGenerated(value.aiGenerated);
+  const disclosure = parseOptionalWhitepaperDisclosure(value.disclosure);
+  return {
+    title,
+    url,
+    aiGenerated,
+    ...(disclosure ? { disclosure } : {}),
+  };
+}
+
+function parseWhitepaperTitle(value: unknown): string {
+  if (typeof value !== "string") {
+    throw new Error("whitepaper.title must be a string.");
+  }
+  const trimmed = value.trim();
+  if (!trimmed) {
+    throw new Error("whitepaper.title is required.");
+  }
+  if (trimmed.length > 180) {
+    throw new Error("whitepaper.title must be 180 characters or fewer.");
+  }
+  return trimmed;
+}
+
+function parseWhitepaperUrl(value: unknown): string {
+  if (typeof value !== "string") {
+    throw new Error("whitepaper.url must be a string.");
+  }
+  const trimmed = value.trim();
+  if (!trimmed) {
+    throw new Error("whitepaper.url is required.");
+  }
+  if (trimmed.length > 500) {
+    throw new Error("whitepaper.url must be 500 characters or fewer.");
+  }
+
+  // Support relative paths so local static PDFs can be referenced.
+  if (!trimmed.includes("://")) {
+    if (trimmed.startsWith("//")) {
+      throw new Error("whitepaper.url must not start with //.");
+    }
+    if (/\s/.test(trimmed)) {
+      throw new Error("whitepaper.url must not include spaces.");
+    }
+    return trimmed;
+  }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    throw new Error(`Invalid whitepaper.url "${value}".`);
+  }
+  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+    throw new Error("whitepaper.url must use http or https when absolute.");
+  }
+  return trimmed;
+}
+
+function parseWhitepaperAiGenerated(value: unknown): boolean {
+  if (value == null) return false;
+  if (typeof value !== "boolean") {
+    throw new Error("whitepaper.aiGenerated must be a boolean when provided.");
+  }
+  return value;
+}
+
+function parseOptionalWhitepaperDisclosure(value: unknown): string | undefined {
+  if (value == null) return undefined;
+  if (typeof value !== "string") {
+    throw new Error("whitepaper.disclosure must be a string when provided.");
+  }
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  if (trimmed.length > 500) {
+    throw new Error("whitepaper.disclosure must be 500 characters or fewer.");
+  }
+  return trimmed;
+}
+
+function parsePortfolioName(value: unknown): string {
+  if (typeof value !== "string") {
+    throw new Error("name must be a string.");
+  }
+  const trimmed = value.trim();
+  if (!trimmed) {
+    throw new Error("name is required.");
+  }
+  if (trimmed.length > 120) {
+    throw new Error("name must be 120 characters or fewer.");
+  }
+  return trimmed;
+}
+
+function parseOptionalPortfolioName(value: unknown, fallback: string): string {
+  if (value == null) return fallback;
+  return parsePortfolioName(value);
+}
+
+function parseOptionalPortfolioKey(value: unknown, fallback: string): string {
+  if (value == null) return fallback;
+  return normalizePortfolioKey(value);
+}
+
+function normalizePortfolioKey(value: unknown): string {
+  if (typeof value !== "string") {
+    throw new Error("portfolio key must be a string.");
+  }
+  const normalized = slugifyPortfolioKey(value);
+  if (!normalized) {
+    throw new Error("portfolio key is required.");
+  }
+  if (normalized.length > 64) {
+    throw new Error("portfolio key must be 64 characters or fewer.");
+  }
+  return normalized;
+}
+
+function slugifyPortfolioKey(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
+
 function normalizeSymbol(value: unknown): string {
   if (typeof value !== "string") {
     throw new Error("symbol must be a string.");
@@ -407,6 +778,51 @@ function normalizeSymbol(value: unknown): string {
   return normalized;
 }
 
+function resolvePortfolioConfig(portfolioKey?: string): LivePortfolioConfig {
+  if (configState.portfolios.length === 0) {
+    throw new Error("No live portfolios are configured.");
+  }
+
+  if (!portfolioKey) {
+    const defaultPortfolio = configState.portfolios.find(
+      (portfolio) => portfolio.key === configState.defaultPortfolioKey
+    );
+    return defaultPortfolio ?? configState.portfolios[0];
+  }
+
+  const normalizedRequestedKey = slugifyPortfolioKey(portfolioKey);
+  const byKey = configState.portfolios.find((portfolio) => portfolio.key === normalizedRequestedKey);
+  if (byKey) return byKey;
+
+  const byName = configState.portfolios.find(
+    (portfolio) => slugifyPortfolioKey(portfolio.name) === normalizedRequestedKey
+  );
+  if (byName) return byName;
+
+  const available = configState.portfolios.map((portfolio) => portfolio.key).join(", ");
+  throw new Error(
+    `Unknown portfolio "${portfolioKey}". Available portfolio keys: ${available || "none"}.`
+  );
+}
+
+function parseOptionalIsoTimestamp(value: unknown, fallback: string): string {
+  if (typeof value !== "string") return fallback;
+  return Number.isFinite(Date.parse(value)) ? value : fallback;
+}
+
+function parseOptionalPortfolioLaunchDate(value: unknown): string | undefined {
+  if (value == null) return undefined;
+  if (typeof value !== "string") {
+    throw new Error("launchedAt must be a string when provided.");
+  }
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  if (!Number.isFinite(Date.parse(trimmed))) {
+    throw new Error("launchedAt must be a valid date string.");
+  }
+  return trimmed;
+}
+
 function persistConfig(): Promise<void> {
   const payload = JSON.stringify(configState, null, 2);
   persistChain = persistChain.then(async () => {
@@ -417,17 +833,34 @@ function persistConfig(): Promise<void> {
   return persistChain;
 }
 
-function cloneConfig(config: LivePortfolioConfig): LivePortfolioConfig {
+function clonePortfolioConfig(config: LivePortfolioConfig): LivePortfolioConfig {
   return {
+    key: config.key,
+    name: config.name,
     allocations: config.allocations.map((allocation) => ({ ...allocation })),
+    ...(config.whitepaper ? { whitepaper: cloneWhitepaper(config.whitepaper) } : {}),
+    ...(config.launchedAt ? { launchedAt: config.launchedAt } : {}),
     buyThreshold: config.buyThreshold,
     sellThreshold: config.sellThreshold,
     updatedAt: config.updatedAt,
   };
 }
 
+function cloneWhitepaper(whitepaper: LivePortfolioWhitepaper): LivePortfolioWhitepaper {
+  return {
+    title: whitepaper.title,
+    url: whitepaper.url,
+    aiGenerated: whitepaper.aiGenerated,
+    ...(whitepaper.disclosure ? { disclosure: whitepaper.disclosure } : {}),
+  };
+}
+
 function cloneSnapshot(snapshot: LivePortfolioSnapshot): LivePortfolioSnapshot {
   return {
+    portfolioKey: snapshot.portfolioKey,
+    portfolioName: snapshot.portfolioName,
+    whitepaper: snapshot.whitepaper ? cloneWhitepaper(snapshot.whitepaper) : null,
+    launchedAt: snapshot.launchedAt,
     algorithm: snapshot.algorithm,
     buyThreshold: snapshot.buyThreshold,
     sellThreshold: snapshot.sellThreshold,
@@ -438,6 +871,8 @@ function cloneSnapshot(snapshot: LivePortfolioSnapshot): LivePortfolioSnapshot {
       symbol: holding.symbol,
       targetPct: holding.targetPct,
       normalizedTargetPct: holding.normalizedTargetPct,
+      summary: holding.summary,
+      wikipediaUrl: holding.wikipediaUrl,
       lastPrice: holding.lastPrice,
       signals: holding.signals.map((signal) => ({ ...signal })),
     })),
@@ -445,8 +880,7 @@ function cloneSnapshot(snapshot: LivePortfolioSnapshot): LivePortfolioSnapshot {
 }
 
 function invalidateSnapshotCache(): void {
-  cachedSnapshot = null;
-  cachedSnapshotAtMs = 0;
+  cachedSnapshotsByKey = new Map<string, { snapshot: LivePortfolioSnapshot; cachedAtMs: number }>();
 }
 
 function parsePositiveInt(value: string | undefined, fallback: number): number {
@@ -468,7 +902,7 @@ async function syncConfigFromDiskIfChanged(): Promise<void> {
     }
     const loaded = await loadConfigFromDisk();
     if (!loaded) return;
-    configState = loaded.config;
+    configState = loaded.state;
     loadedStateMtimeMs = loaded.mtimeMs;
     invalidateSnapshotCache();
   } catch {
@@ -476,13 +910,13 @@ async function syncConfigFromDiskIfChanged(): Promise<void> {
   }
 }
 
-async function loadConfigFromDisk(): Promise<{ config: LivePortfolioConfig; mtimeMs: number } | null> {
+async function loadConfigFromDisk(): Promise<{ state: LivePortfolioState; mtimeMs: number } | null> {
   try {
     const info = await stat(LIVE_PORTFOLIO_STATE_FILE);
     const raw = await readFile(LIVE_PORTFOLIO_STATE_FILE, "utf8");
     const parsed = JSON.parse(raw) as PersistedPortfolioState;
     return {
-      config: normalizePersistedConfig(parsed),
+      state: normalizePersistedState(parsed),
       mtimeMs: info.mtimeMs,
     };
   } catch {

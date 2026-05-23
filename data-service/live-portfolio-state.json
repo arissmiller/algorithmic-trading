@@ -1,24 +1,224 @@
 {
-  "allocations": [
-    { "symbol": "VOO", "targetPct": 10 },
-    { "symbol": "VXUS", "targetPct": 5 },
-    { "symbol": "CNXT", "targetPct": 5 },
-    { "symbol": "NVDA", "targetPct": 8 },
-    { "symbol": "TSM", "targetPct": 6},
-    { "symbol": "ASML", "targetPct": 6},
-    { "symbol": "AMAT", "targetPct": 4},
-    { "symbol": "ETN", "targetPct": 5},
-    { "symbol": "VRT", "targetPct": 3},
-    { "symbol": "LIN", "targetPct": 2},
-    { "symbol": "FCX", "targetPct": 2},
-    { "symbol": "CRWD", "targetPct": 5},
-    { "symbol": "ROK", "targetPct": 5},
-    { "symbol": "PH", "targetPct": 4},
-    { "symbol": "GEV", "targetPct": 4},
-    { "symbol": "MU", "targetPct": 4},
-    { "symbol": "APD", "targetPct": 4}
+  "defaultPortfolioKey": "advanced_industrials_automation",
+  "portfolios": [
+    {
+      "key": "advanced_industrials_automation",
+      "name": "Advanced Industrials and Automation Portfolio",
+      "launchedAt": "2026-05-22T00:00:00.000Z",
+      "whitepaper": {
+        "title": "Advanced Industrials and Automation Portfolio Whitepaper (AI-Generated)",
+        "url": "/whitepapers/advanced-industrials-automation-whitepaper.pdf",
+        "aiGenerated": true,
+        "disclosure": "This whitepaper was originally generated with AI and should be treated as informational content, not investment advice."
+      },
+      "allocations": [
+        {
+          "symbol": "VOO",
+          "targetPct": 10,
+          "summary": "Vanguard ETF tracking the S&P 500, giving broad exposure to large-cap U.S. equities.",
+          "wikipediaUrl": "https://en.wikipedia.org/wiki/S%26P_500"
+        },
+        {
+          "symbol": "VXUS",
+          "targetPct": 5,
+          "summary": "Vanguard ETF covering developed and emerging-market stocks outside the United States.",
+          "wikipediaUrl": "https://en.wikipedia.org/wiki/FTSE_Global_Equity_Index_Series"
+        },
+        {
+          "symbol": "CNXT",
+          "targetPct": 5,
+          "summary": "VanEck ETF focused on innovation-oriented companies listed on China's ChiNext market.",
+          "wikipediaUrl": "https://en.wikipedia.org/wiki/ChiNext"
+        },
+        {
+          "symbol": "NVDA",
+          "targetPct": 8,
+          "summary": "NVIDIA designs GPUs and accelerated computing chips used in AI, gaming, and data centers.",
+          "wikipediaUrl": "https://en.wikipedia.org/wiki/Nvidia"
+        },
+        {
+          "symbol": "TSM",
+          "targetPct": 6,
+          "summary": "TSMC is the world's largest dedicated semiconductor foundry, manufacturing chips for many designers.",
+          "wikipediaUrl": "https://en.wikipedia.org/wiki/TSMC"
+        },
+        {
+          "symbol": "ASML",
+          "targetPct": 6,
+          "summary": "ASML builds advanced lithography systems that are critical for cutting-edge chip manufacturing.",
+          "wikipediaUrl": "https://en.wikipedia.org/wiki/ASML_Holding"
+        },
+        {
+          "symbol": "AMAT",
+          "targetPct": 4,
+          "summary": "Applied Materials supplies equipment, software, and services for semiconductor fabrication plants.",
+          "wikipediaUrl": "https://en.wikipedia.org/wiki/Applied_Materials"
+        },
+        {
+          "symbol": "ETN",
+          "targetPct": 5,
+          "summary": "Eaton provides power management hardware and software across electrical, industrial, and aerospace markets.",
+          "wikipediaUrl": "https://en.wikipedia.org/wiki/Eaton_Corporation"
+        },
+        {
+          "symbol": "VRT",
+          "targetPct": 3,
+          "summary": "Vertiv provides power, cooling, and infrastructure solutions for data centers and communications networks.",
+          "wikipediaUrl": "https://en.wikipedia.org/wiki/Vertiv"
+        },
+        {
+          "symbol": "LIN",
+          "targetPct": 2,
+          "summary": "Linde is a global industrial gases leader serving manufacturing, healthcare, and energy markets.",
+          "wikipediaUrl": "https://en.wikipedia.org/wiki/Linde_plc"
+        },
+        {
+          "symbol": "FCX",
+          "targetPct": 2,
+          "summary": "Freeport-McMoRan is a major producer of copper, gold, and molybdenum with global mining operations.",
+          "wikipediaUrl": "https://en.wikipedia.org/wiki/Freeport-McMoRan"
+        },
+        {
+          "symbol": "CRWD",
+          "targetPct": 5,
+          "summary": "CrowdStrike delivers cloud-native endpoint security, threat intelligence, and incident response services.",
+          "wikipediaUrl": "https://en.wikipedia.org/wiki/CrowdStrike"
+        },
+        {
+          "symbol": "ROK",
+          "targetPct": 5,
+          "summary": "Rockwell Automation provides industrial automation and digital transformation solutions for manufacturers.",
+          "wikipediaUrl": "https://en.wikipedia.org/wiki/Rockwell_Automation"
+        },
+        {
+          "symbol": "PH",
+          "targetPct": 4,
+          "summary": "Parker Hannifin manufactures motion and control technologies used in industrial and aerospace systems.",
+          "wikipediaUrl": "https://en.wikipedia.org/wiki/Parker_Hannifin"
+        },
+        {
+          "symbol": "GEV",
+          "targetPct": 4,
+          "summary": "GE Vernova focuses on electric power generation, grid technology, and energy transition infrastructure.",
+          "wikipediaUrl": "https://en.wikipedia.org/wiki/GE_Vernova"
+        },
+        {
+          "symbol": "MU",
+          "targetPct": 4,
+          "summary": "Micron Technology designs and manufactures memory and storage semiconductors including DRAM and NAND.",
+          "wikipediaUrl": "https://en.wikipedia.org/wiki/Micron_Technology"
+        },
+        {
+          "symbol": "APD",
+          "targetPct": 4,
+          "summary": "Air Products supplies industrial gases and related equipment to manufacturing and energy customers worldwide.",
+          "wikipediaUrl": "https://en.wikipedia.org/wiki/Air_Products"
+        }
+      ],
+      "buyThreshold": 0.6,
+      "sellThreshold": 0.4,
+      "updatedAt": "2026-05-22T00:00:00.000Z"
+    },
+    {
+      "key": "enterprise_software",
+      "name": "Enterprise Software Portfolio",
+      "launchedAt": "2026-05-22T00:00:00.000Z",
+      "whitepaper": {
+        "title": "Enterprise Software Portfolio Whitepaper (AI-Generated)",
+        "url": "/whitepapers/enterprise-software-whitepaper.pdf",
+        "aiGenerated": true,
+        "disclosure": "This whitepaper was originally generated with AI and should be treated as informational content, not investment advice."
+      },
+      "allocations": [
+        {
+          "symbol": "MSFT",
+          "targetPct": 12,
+          "summary": "Microsoft develops software, cloud platforms, productivity tools, and AI products for consumers and enterprises.",
+          "wikipediaUrl": "https://en.wikipedia.org/wiki/Microsoft"
+        },
+        {
+          "symbol": "GTLB",
+          "targetPct": 7,
+          "summary": "GitLab provides a DevSecOps platform for source control, CI/CD, security scanning, and collaboration.",
+          "wikipediaUrl": "https://en.wikipedia.org/wiki/GitLab"
+        },
+        {
+          "symbol": "TEAM",
+          "targetPct": 7,
+          "summary": "Atlassian builds collaboration and developer tools including Jira, Confluence, and Trello.",
+          "wikipediaUrl": "https://en.wikipedia.org/wiki/Atlassian"
+        },
+        {
+          "symbol": "NOW",
+          "targetPct": 8,
+          "summary": "ServiceNow offers workflow automation software for IT, operations, customer service, and enterprise processes.",
+          "wikipediaUrl": "https://en.wikipedia.org/wiki/ServiceNow"
+        },
+        {
+          "symbol": "SNOW",
+          "targetPct": 7,
+          "summary": "Snowflake provides a cloud-native data platform for warehousing, analytics, and data sharing.",
+          "wikipediaUrl": "https://en.wikipedia.org/wiki/Snowflake_Inc."
+        },
+        {
+          "symbol": "OKTA",
+          "targetPct": 6,
+          "summary": "Okta provides identity and access management for workforce and customer authentication.",
+          "wikipediaUrl": "https://en.wikipedia.org/wiki/Okta,_Inc."
+        },
+        {
+          "symbol": "CRWD",
+          "targetPct": 6,
+          "summary": "CrowdStrike delivers cloud-native endpoint security, threat intelligence, and incident response services.",
+          "wikipediaUrl": "https://en.wikipedia.org/wiki/CrowdStrike"
+        },
+        {
+          "symbol": "ESTC",
+          "targetPct": 5,
+          "summary": "Elastic develops search and observability software built around Elasticsearch and the Elastic Stack.",
+          "wikipediaUrl": "https://en.wikipedia.org/wiki/Elastic_NV"
+        },
+        {
+          "symbol": "PANW",
+          "targetPct": 6,
+          "summary": "Palo Alto Networks provides cybersecurity platforms spanning network, cloud, and security operations.",
+          "wikipediaUrl": "https://en.wikipedia.org/wiki/Palo_Alto_Networks"
+        },
+        {
+          "symbol": "VMW",
+          "targetPct": 7,
+          "summary": "VMware pioneered enterprise virtualization software and now operates as part of Broadcom.",
+          "wikipediaUrl": "https://en.wikipedia.org/wiki/VMware"
+        },
+        {
+          "symbol": "DDOG",
+          "targetPct": 5,
+          "summary": "Datadog offers cloud monitoring, observability, and security analytics for modern applications.",
+          "wikipediaUrl": "https://en.wikipedia.org/wiki/Datadog"
+        },
+        {
+          "symbol": "TWLO",
+          "targetPct": 5,
+          "summary": "Twilio provides APIs for messaging, voice, email, and customer engagement workflows.",
+          "wikipediaUrl": "https://en.wikipedia.org/wiki/Twilio"
+        },
+        {
+          "symbol": "ADBE",
+          "targetPct": 5,
+          "summary": "Adobe builds creative, document, and digital experience software including Photoshop and Acrobat.",
+          "wikipediaUrl": "https://en.wikipedia.org/wiki/Adobe_Inc."
+        },
+        {
+          "symbol": "PATH",
+          "targetPct": 6,
+          "summary": "UiPath develops robotic process automation software for automating repetitive enterprise workflows.",
+          "wikipediaUrl": "https://en.wikipedia.org/wiki/UiPath"
+        }
+      ],
+      "buyThreshold": 0.6,
+      "sellThreshold": 0.4,
+      "updatedAt": "2026-05-22T00:00:00.000Z"
+    }
   ],
-  "buyThreshold": 0.6,
-  "sellThreshold": 0.4,
-  "updatedAt": "2026-05-21T00:00:00.000Z"
+  "updatedAt": "2026-05-22T00:00:00.000Z"
 }

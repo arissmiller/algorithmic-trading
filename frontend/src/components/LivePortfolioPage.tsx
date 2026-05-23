@@ -16,11 +16,24 @@ type LivePortfolioHoldingSnapshot = {
   symbol: string;
   targetPct: number;
   normalizedTargetPct: number;
+  summary: string | null;
+  wikipediaUrl: string | null;
   lastPrice: number | null;
   signals: LivePortfolioSignalWindow[];
 };
 
+type LivePortfolioWhitepaper = {
+  title: string;
+  url: string;
+  aiGenerated: boolean;
+  disclosure: string | null;
+};
+
 type LivePortfolioSnapshot = {
+  portfolioKey: string;
+  portfolioName: string;
+  whitepaper: LivePortfolioWhitepaper | null;
+  launchedAt: string | null;
   algorithm: "buy_over_time";
   buyThreshold: number;
   sellThreshold: number;
@@ -42,7 +55,15 @@ type WindowSignalBreakdown = {
 
 const SIGNAL_WINDOWS: Array<7 | 30 | 90> = [7, 30, 90];
 
-export default function LivePortfolioPage({ apiPrefix }: { apiPrefix: string }) {
+export default function LivePortfolioPage({
+  apiPrefix,
+  portfolioKey,
+  defaultPortfolioName,
+}: {
+  apiPrefix: string;
+  portfolioKey?: string;
+  defaultPortfolioName: string;
+}) {
   const [snapshot, setSnapshot] = useState<LivePortfolioSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -50,6 +71,12 @@ export default function LivePortfolioPage({ apiPrefix }: { apiPrefix: string }) 
   const [priceBarsBySymbol, setPriceBarsBySymbol] = useState<Record<string, Bar[]>>({});
   const [priceBarsLoadingBySymbol, setPriceBarsLoadingBySymbol] = useState<Record<string, boolean>>({});
   const [priceBarsErrorBySymbol, setPriceBarsErrorBySymbol] = useState<Record<string, string | null>>({});
+
+  const portfolioUrl = buildPortfolioUrl(apiPrefix, portfolioKey);
+  const whitepaperLink = toSafeWhitepaperUrl(snapshot?.whitepaper?.url);
+  const liveSinceLabel = formatLiveSinceDay(snapshot?.launchedAt ?? null);
+  const aiWhitepaperDisclosure = snapshot?.whitepaper?.disclosure?.trim()
+    || "Transparency note: this portfolio whitepaper was originally AI-generated and should be reviewed before relying on it.";
 
   const loadSnapshot = useCallback(async (silent: boolean) => {
     if (silent) {
@@ -59,7 +86,7 @@ export default function LivePortfolioPage({ apiPrefix }: { apiPrefix: string }) 
     }
 
     try {
-      const response = await fetch(`${apiPrefix}/bot/portfolio`);
+      const response = await fetch(portfolioUrl);
       const body = (await response.json().catch(() => ({}))) as Partial<LivePortfolioSnapshot> & {
         error?: string;
       };
@@ -71,20 +98,37 @@ export default function LivePortfolioPage({ apiPrefix }: { apiPrefix: string }) 
         typeof body.buyThreshold !== "number" ||
         typeof body.sellThreshold !== "number"
       ) {
-        throw new Error("Invalid live portfolio response.");
+        throw new Error("Invalid portfolio response.");
       }
 
-      setSnapshot(body as LivePortfolioSnapshot);
+      const snapshotPortfolioName =
+        typeof body.portfolioName === "string" && body.portfolioName.trim().length > 0
+          ? body.portfolioName
+          : defaultPortfolioName;
+      const snapshotPortfolioKey =
+        typeof body.portfolioKey === "string" && body.portfolioKey.trim().length > 0
+          ? body.portfolioKey
+          : normalizePortfolioKey(portfolioKey ?? snapshotPortfolioName);
+      const snapshotWhitepaper = coerceWhitepaper(body.whitepaper);
+      const snapshotLaunchedAt = coerceOptionalDateString(body.launchedAt);
+
+      setSnapshot({
+        ...(body as LivePortfolioSnapshot),
+        portfolioName: snapshotPortfolioName,
+        portfolioKey: snapshotPortfolioKey,
+        whitepaper: snapshotWhitepaper,
+        launchedAt: snapshotLaunchedAt,
+      });
       setError(null);
     } catch (requestError) {
       const message =
-        requestError instanceof Error ? requestError.message : "Failed to load live portfolio.";
+        requestError instanceof Error ? requestError.message : "Failed to load portfolio.";
       setError(message);
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [apiPrefix]);
+  }, [defaultPortfolioName, portfolioKey, portfolioUrl]);
 
   const loadPriceHistory = useCallback(async (symbol: string) => {
     const key = normalizeSymbol(symbol);
@@ -153,10 +197,15 @@ export default function LivePortfolioPage({ apiPrefix }: { apiPrefix: string }) 
     <div className="h-full overflow-auto p-4">
       <section className="mb-4 flex flex-wrap items-center gap-3">
         <div>
-          <h2 className="text-sm font-semibold mb-1">Live Portfolio</h2>
+          <h2 className="text-sm font-semibold mb-1">{snapshot?.portfolioName ?? defaultPortfolioName}</h2>
           <p className="text-xs text-text-secondary">
             Backend-controlled target allocations with live buy-over-time signals at 7, 30, and 90 days.
           </p>
+          {liveSinceLabel ? (
+            <p className="text-[11px] text-text-secondary mt-1">
+              Live since {liveSinceLabel}
+            </p>
+          ) : null}
         </div>
         <button
           type="button"
@@ -168,6 +217,34 @@ export default function LivePortfolioPage({ apiPrefix }: { apiPrefix: string }) 
         </button>
       </section>
 
+      {snapshot?.whitepaper ? (
+        <section className="mb-4 rounded border border-border bg-surface-1 px-3 py-2.5">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-xs font-semibold text-text-primary">{snapshot.whitepaper.title}</p>
+            {whitepaperLink ? (
+              <a
+                href={whitepaperLink}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex rounded border border-accent/40 bg-accent/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-accent transition-colors hover:border-accent hover:bg-accent/15"
+              >
+                Open PDF
+              </a>
+            ) : (
+              <span className="text-[10px] text-sell">Whitepaper link is invalid.</span>
+            )}
+            {snapshot.whitepaper.aiGenerated ? (
+              <span className="inline-flex rounded border border-[#f5c16c66] bg-[#f5c16c22] px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-[#f5c16c]">
+                AI-generated
+              </span>
+            ) : null}
+          </div>
+          {snapshot.whitepaper.aiGenerated ? (
+            <p className="mt-1 text-[10px] text-[#f5c16c]">{aiWhitepaperDisclosure}</p>
+          ) : null}
+        </section>
+      ) : null}
+
       {error ? (
         <div className="mb-4 rounded border border-sell/30 bg-sell/10 px-3 py-2 text-xs text-sell">
           {error}
@@ -176,7 +253,7 @@ export default function LivePortfolioPage({ apiPrefix }: { apiPrefix: string }) 
 
       {loading && !snapshot ? (
         <div className="mb-4 rounded border border-border bg-surface-1 px-4 py-5 text-xs text-text-secondary">
-          Loading live portfolio...
+          Loading portfolio...
         </div>
       ) : null}
 
@@ -216,7 +293,7 @@ export default function LivePortfolioPage({ apiPrefix }: { apiPrefix: string }) 
 
         {!snapshot ? (
           <div className="p-4 text-xs text-text-secondary">
-            Live portfolio data is unavailable.
+            Portfolio data is unavailable.
           </div>
         ) : snapshot.holdings.length === 0 ? (
           <div className="p-4 text-xs text-text-secondary">
@@ -226,6 +303,7 @@ export default function LivePortfolioPage({ apiPrefix }: { apiPrefix: string }) 
           <div className="space-y-3 p-3">
             {snapshot.holdings.map((holding) => {
               const symbolKey = normalizeSymbol(holding.symbol);
+              const wikipediaUrl = toSafeWikipediaUrl(holding.wikipediaUrl);
               const symbolBars = priceBarsBySymbol[symbolKey] ?? [];
               const signalBreakdowns = computeWindowSignalBreakdowns(symbolBars);
               const cadenceMarkers = buildCadenceEventMarkers(symbolBars);
@@ -240,6 +318,21 @@ export default function LivePortfolioPage({ apiPrefix }: { apiPrefix: string }) 
                             <div>
                               <dt className="uppercase tracking-wide text-text-secondary">Symbol</dt>
                               <dd className="font-semibold text-text-primary">{holding.symbol}</dd>
+                              {holding.summary ? (
+                                <p className="mt-1 text-[10px] leading-snug text-text-secondary">
+                                  {holding.summary}
+                                </p>
+                              ) : null}
+                              {wikipediaUrl ? (
+                                <a
+                                  href={wikipediaUrl}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="mt-1 inline-flex text-[10px] font-medium text-accent hover:underline"
+                                >
+                                  Wikipedia
+                                </a>
+                              ) : null}
                             </div>
                             <div>
                               <dt className="uppercase tracking-wide text-text-secondary">Target % (Portfolio)</dt>
@@ -494,6 +587,90 @@ function clamp01(value: number): number {
 
 function normalizeSymbol(value: string): string {
   return value.trim().toUpperCase();
+}
+
+function toSafeWikipediaUrl(value: string | null | undefined): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol !== "https:" || !parsed.hostname.toLowerCase().endsWith("wikipedia.org")) {
+      return null;
+    }
+    return parsed.toString();
+  } catch {
+    return null;
+  }
+}
+
+function toSafeWhitepaperUrl(value: string | null | undefined): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+
+  if (!trimmed.includes("://")) {
+    if (trimmed.startsWith("//") || /\s/.test(trimmed)) return null;
+    return trimmed;
+  }
+
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+      return null;
+    }
+    return parsed.toString();
+  } catch {
+    return null;
+  }
+}
+
+function coerceWhitepaper(value: unknown): LivePortfolioWhitepaper | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  const title = typeof record.title === "string" ? record.title.trim() : "";
+  const url = typeof record.url === "string" ? record.url.trim() : "";
+  if (!title || !url) return null;
+
+  const disclosureRaw = typeof record.disclosure === "string" ? record.disclosure.trim() : "";
+  return {
+    title,
+    url,
+    aiGenerated: typeof record.aiGenerated === "boolean" ? record.aiGenerated : false,
+    disclosure: disclosureRaw || null,
+  };
+}
+
+function coerceOptionalDateString(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  return Number.isFinite(Date.parse(trimmed)) ? trimmed : null;
+}
+
+function formatLiveSinceDay(value: string | null): string | null {
+  if (!value) return null;
+  const parsed = new Date(value);
+  if (!Number.isFinite(parsed.getTime())) return null;
+  return parsed.toLocaleDateString(undefined, {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
+}
+
+function normalizePortfolioKey(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
+
+function buildPortfolioUrl(apiPrefix: string, portfolioKey?: string): string {
+  if (!portfolioKey || !portfolioKey.trim()) return `${apiPrefix}/bot/portfolio`;
+  const params = new URLSearchParams({ portfolio: portfolioKey.trim() });
+  return `${apiPrefix}/bot/portfolio?${params.toString()}`;
 }
 
 function sortBarsByTime(bars: Bar[]): Bar[] {

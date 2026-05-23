@@ -1,4 +1,5 @@
-import { type ReactNode, useMemo, useRef, useState } from "react";
+import { ColorType, createChart, type IChartApi, LineSeries, LineStyle, type Time } from "lightweight-charts";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import type { Bar } from "../lib/signals";
 
 const DEFAULT_BENCHMARK_SYMBOLS = ["^DJI", "^GSPC"];
@@ -680,106 +681,168 @@ function PortfolioComparisonCurve({
   benchmarks: BenchmarkComparisonResult[];
   initialValue: number;
 }) {
-  if (portfolioEquityCurve.length < 2 || benchmarks.length === 0) return null;
+  const chartContainerRef = useRef<HTMLDivElement | null>(null);
+  const chartRef = useRef<IChartApi | null>(null);
+  const lineSeriesRef = useRef<Array<ReturnType<IChartApi["addSeries"]>>>([]);
 
-  const dateSet = new Set<string>();
-  for (const point of portfolioEquityCurve) {
-    dateSet.add(point.date);
-  }
-  for (const benchmark of benchmarks) {
-    for (const point of benchmark.equityCurve) {
-      dateSet.add(point.date);
+  const chartData = useMemo(() => {
+    const toLineTime = (isoDate: string): Time | null => {
+      const utcDate = parseIsoDateToUtc(isoDate);
+      if (!utcDate) return null;
+      return Math.floor(utcDate.getTime() / 1000) as Time;
+    };
+
+    const portfolioSeries = portfolioEquityCurve
+      .map((point) => {
+        const time = toLineTime(point.date);
+        if (time === null || !Number.isFinite(point.portfolioValue)) return null;
+        return { time, value: point.portfolioValue };
+      })
+      .filter((point): point is { time: Time; value: number } => point !== null)
+      .sort((a, b) => (a.time as number) - (b.time as number));
+
+    const benchmarkSeries = benchmarks
+      .map((benchmark, benchmarkIndex) => {
+        const points = benchmark.equityCurve
+          .map((point) => {
+            const time = toLineTime(point.date);
+            if (time === null || !Number.isFinite(point.benchmarkValue)) return null;
+            return { time, value: point.benchmarkValue };
+          })
+          .filter((point): point is { time: Time; value: number } => point !== null)
+          .sort((a, b) => (a.time as number) - (b.time as number));
+        return {
+          symbol: benchmark.symbol,
+          color: colorForBenchmark(benchmarkIndex),
+          points,
+        };
+      })
+      .filter((series) => series.points.length >= 2);
+
+    const firstPortfolioPoint = portfolioSeries[0];
+    const lastPortfolioPoint = portfolioSeries[portfolioSeries.length - 1];
+    const baselineSeries =
+      firstPortfolioPoint && lastPortfolioPoint
+        ? [
+            { time: firstPortfolioPoint.time, value: initialValue },
+            { time: lastPortfolioPoint.time, value: initialValue },
+          ]
+        : [];
+
+    const values = [
+      initialValue,
+      ...portfolioSeries.map((point) => point.value),
+      ...benchmarkSeries.flatMap((series) => series.points.map((point) => point.value)),
+    ].filter((value) => Number.isFinite(value));
+
+    const minValue = values.length > 0 ? Math.min(...values) : initialValue;
+    const maxValue = values.length > 0 ? Math.max(...values) : initialValue;
+    const hasData = portfolioSeries.length >= 2 && benchmarkSeries.length > 0;
+
+    return {
+      portfolioSeries,
+      benchmarkSeries,
+      baselineSeries,
+      minValue,
+      maxValue,
+      firstDate: portfolioEquityCurve[0]?.date ?? "",
+      lastDate: portfolioEquityCurve[portfolioEquityCurve.length - 1]?.date ?? "",
+      hasData,
+    };
+  }, [benchmarks, initialValue, portfolioEquityCurve]);
+
+  useEffect(() => {
+    const el = chartContainerRef.current;
+    if (!el) return;
+
+    const chart = createChart(el, {
+      layout: {
+        background: { type: ColorType.Solid, color: "#151515" },
+        textColor: "#9ca3af",
+      },
+      grid: { vertLines: { color: "#24262b" }, horzLines: { color: "#24262b" } },
+      rightPriceScale: { borderColor: "#2a2a2a" },
+      timeScale: { borderColor: "#2a2a2a", timeVisible: false, secondsVisible: false },
+      crosshair: {
+        vertLine: { color: "#5b8dee", labelBackgroundColor: "#5b8dee" },
+        horzLine: { color: "#5b8dee", labelBackgroundColor: "#5b8dee" },
+      },
+      width: el.clientWidth,
+      height: el.clientHeight,
+    });
+
+    chartRef.current = chart;
+    const resizeObserver = new ResizeObserver(() => {
+      chart.applyOptions({ width: el.clientWidth, height: el.clientHeight });
+    });
+    resizeObserver.observe(el);
+
+    return () => {
+      resizeObserver.disconnect();
+      chart.remove();
+      chartRef.current = null;
+      lineSeriesRef.current = [];
+    };
+  }, []);
+
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) return;
+
+    for (const series of lineSeriesRef.current) {
+      chart.removeSeries(series);
     }
-  }
-  const orderedDates = Array.from(dateSet).sort((a, b) => (a < b ? -1 : 1));
-  if (orderedDates.length < 2) return null;
-  const dateToIndex = new Map(orderedDates.map((date, index) => [date, index]));
+    lineSeriesRef.current = [];
 
-  const width = 900;
-  const height = 220;
-  const paddingLeft = 30;
-  const paddingRight = 10;
-  const paddingTop = 10;
-  const paddingBottom = 20;
-  const innerWidth = width - paddingLeft - paddingRight;
-  const innerHeight = height - paddingTop - paddingBottom;
+    if (!chartData.hasData) return;
 
-  const values = [
-    ...portfolioEquityCurve.map((point) => point.portfolioValue),
-    ...benchmarks.flatMap((benchmark) => benchmark.equityCurve.map((point) => point.benchmarkValue)),
-  ];
-  const minValue = Math.min(...values, initialValue * 0.95);
-  const maxValue = Math.max(...values, initialValue * 1.05);
-  const range = Math.max(1, maxValue - minValue);
+    const baselineSeries = chart.addSeries(LineSeries, {
+      color: "#71717a",
+      lineWidth: 1,
+      lineStyle: LineStyle.Dashed,
+      priceLineVisible: false,
+      lastValueVisible: false,
+      crosshairMarkerVisible: false,
+    });
+    baselineSeries.setData(chartData.baselineSeries);
+    lineSeriesRef.current.push(baselineSeries);
 
-  const toX = (index: number) => {
-    const ratio = orderedDates.length <= 1 ? 0 : index / (orderedDates.length - 1);
-    return paddingLeft + ratio * innerWidth;
-  };
-  const toY = (value: number) => {
-    const ratio = (value - minValue) / range;
-    return paddingTop + (1 - ratio) * innerHeight;
-  };
+    for (const benchmark of chartData.benchmarkSeries) {
+      const benchmarkLine = chart.addSeries(LineSeries, {
+        color: benchmark.color,
+        lineWidth: 2,
+        priceLineVisible: false,
+        lastValueVisible: false,
+        crosshairMarkerVisible: false,
+      });
+      benchmarkLine.setData(benchmark.points);
+      lineSeriesRef.current.push(benchmarkLine);
+    }
 
-  const portfolioPoints = portfolioEquityCurve
-    .map((point) => {
-      const index = dateToIndex.get(point.date);
-      if (index == null) return null;
-      return `${toX(index).toFixed(1)},${toY(point.portfolioValue).toFixed(1)}`;
-    })
-    .filter((point): point is string => point !== null)
-    .join(" ");
-  const benchmarkSeries = benchmarks
-    .map((benchmark, benchmarkIndex) => {
-      const points = benchmark.equityCurve
-        .map((point) => {
-          const index = dateToIndex.get(point.date);
-          if (index == null) return null;
-          return `${toX(index).toFixed(1)},${toY(point.benchmarkValue).toFixed(1)}`;
-        })
-        .filter((point): point is string => point !== null);
-      return {
-        symbol: benchmark.symbol,
-        color: colorForBenchmark(benchmarkIndex),
-        points: points.join(" "),
-        pointCount: points.length,
-      };
-    })
-    .filter((series) => series.pointCount >= 2);
-  const baselineY = toY(initialValue).toFixed(1);
-  const firstDate = orderedDates[0] ?? "";
-  const lastDate = orderedDates[orderedDates.length - 1] ?? "";
+    const portfolioLine = chart.addSeries(LineSeries, {
+      color: "#5b8dee",
+      lineWidth: 2,
+      priceLineVisible: false,
+      lastValueVisible: false,
+    });
+    portfolioLine.setData(chartData.portfolioSeries);
+    lineSeriesRef.current.push(portfolioLine);
+
+    chart.timeScale().fitContent();
+  }, [chartData]);
+
+  if (!chartData.hasData) return null;
 
   return (
     <div className="rounded border border-border bg-surface-2 p-2">
-      <svg viewBox={`0 0 ${width} ${height}`} className="h-56 w-full" preserveAspectRatio="none">
-        <line
-          x1={paddingLeft}
-          y1={baselineY}
-          x2={width - paddingRight}
-          y2={baselineY}
-          stroke="#3f3f46"
-          strokeWidth={1}
-          strokeDasharray="4 3"
-        />
-        {benchmarkSeries.map((series) => (
-          <polyline
-            key={`benchmark-line-${series.symbol}`}
-            points={series.points}
-            fill="none"
-            stroke={series.color}
-            strokeWidth={1.6}
-          />
-        ))}
-        <polyline points={portfolioPoints} fill="none" stroke="#5b8dee" strokeWidth={1.8} />
-      </svg>
+      <div ref={chartContainerRef} className="h-56 w-full" />
       <div className="mt-1 flex justify-between text-[10px] text-text-secondary">
-        <span>{firstDate}</span>
-        <span>{lastDate}</span>
+        <span>{chartData.firstDate}</span>
+        <span>{chartData.lastDate}</span>
       </div>
       <div className="mt-0.5 flex justify-between text-[10px] text-text-secondary">
-        <span>Min: {formatUsd(minValue)}</span>
-        <span>Max: {formatUsd(maxValue)}</span>
+        <span>Min: {formatUsd(chartData.minValue)}</span>
+        <span>Max: {formatUsd(chartData.maxValue)}</span>
       </div>
     </div>
   );

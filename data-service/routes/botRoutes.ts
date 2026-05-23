@@ -80,16 +80,23 @@ export async function handleBotRoutes(
   }
 
   if (url.pathname === "/api/bot/portfolio" && req.method === "GET") {
-    const snapshot = await getLivePortfolioSnapshot();
-    res.writeHead(200);
-    res.end(JSON.stringify(snapshot));
+    const portfolioKey = url.searchParams.get("portfolio") ?? undefined;
+    try {
+      const snapshot = await getLivePortfolioSnapshot(portfolioKey);
+      res.writeHead(200);
+      res.end(JSON.stringify(snapshot));
+    } catch (err) {
+      res.writeHead(400);
+      res.end(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }));
+    }
     return;
   }
 
   if (url.pathname === "/api/bot/portfolio" && req.method === "PUT") {
+    const portfolioKey = url.searchParams.get("portfolio") ?? undefined;
     try {
       const body = await readJsonBody(req);
-      const config = await updateLivePortfolioConfig(body);
+      const config = await updateLivePortfolioConfig(body, portfolioKey);
       res.writeHead(200);
       res.end(JSON.stringify({ ok: true, config }));
     } catch (err) {
