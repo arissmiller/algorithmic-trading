@@ -349,7 +349,7 @@ export function readSmtpConfigFromEnv(): SmtpConfig | null {
     fromEmail,
     fromName:
       trimToNull(process.env.DISPATCH_SMTP_FROM_NAME ?? process.env.SMTP_FROM_NAME) ??
-      "Smart Scale",
+      "AI Investment Platform",
     replyTo: trimToNull(process.env.DISPATCH_SMTP_REPLY_TO ?? process.env.SMTP_REPLY_TO),
   };
 }

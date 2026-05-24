@@ -18,10 +18,10 @@ const MARKET_INDEX_PRESET: BenchmarkPreset = {
 
 const LIVE_PORTFOLIO_THEME_PRESETS: Record<string, BenchmarkPreset> = {
   advanced_industrials_automation: {
-    id: "advanced_industrials_etf_peers",
-    label: "Industrials + Automation ETFs",
-    symbols: ["XLI", "PAVE", "BOTZ", "SOXX", "IRBO"],
-    description: "Industrial, infrastructure, robotics, and semiconductor ETF peers.",
+    id: "semiconductors_etf_peers",
+    label: "Semiconductors ETFs",
+    symbols: ["SOXX", "SMH", "XSD", "SOXQ"],
+    description: "Semiconductor-focused ETF peers, with SOXX as the primary default benchmark.",
   },
   enterprise_software: {
     id: "enterprise_software_etf_peers",

@@ -379,7 +379,7 @@ function runDirectionalBacktest(
   const smart = summariseTrades(smartTrades);
   if (smart.totalShares <= 0 || smart.totalAmount <= 0) return null;
 
-  // Keep baseline budgets identical to what smart scale actually deployed.
+  // Keep baseline budgets identical to what AI Investment Platform actually deployed.
   const comparisonBudget = smart.totalAmount;
   const comparisonTranches = Math.min(smartTrades.length, windowBars.length);
   const randomSeed = hash32(

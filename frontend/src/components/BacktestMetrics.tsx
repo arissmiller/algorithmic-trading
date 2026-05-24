@@ -20,7 +20,7 @@ export default function BacktestMetrics({
       className={`grid grid-cols-2 ${compact ? "gap-2 p-3" : "gap-3 p-4"} lg:grid-cols-4`}
     >
       <Card
-        label={`Smart Scale ${avgLabel}`}
+        label={`AI Investment Platform ${avgLabel}`}
         value={`$${fmt(c.smartScale)}`}
         sub={`$${fmt(section.totalAmount)} ${amountVerb} across ${section.trades.length} ${tradeNoun}`}
         compact={compact}
@@ -56,15 +56,15 @@ function deltaText(
   isScaleOut: boolean
 ): string {
   const abs = Math.abs(deltaPct);
-  if (abs < 0.01) return "Smart scale and this baseline are nearly identical";
+  if (abs < 0.01) return "AI Investment Platform and this baseline are nearly identical";
   if (deltaPct > 0) {
     return isScaleOut
-      ? `Smart scale higher by ${fmt(abs)}%`
-      : `Smart scale lower by ${fmt(abs)}%`;
+      ? `AI Investment Platform higher by ${fmt(abs)}%`
+      : `AI Investment Platform lower by ${fmt(abs)}%`;
   }
   return isScaleOut
-    ? `Smart scale lower by ${fmt(abs)}%`
-    : `Smart scale higher by ${fmt(abs)}%`;
+    ? `AI Investment Platform lower by ${fmt(abs)}%`
+    : `AI Investment Platform higher by ${fmt(abs)}%`;
 }
 
 function Card({

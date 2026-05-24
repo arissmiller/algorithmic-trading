@@ -3,12 +3,12 @@
   "portfolios": [
     {
       "key": "advanced_industrials_automation",
-      "name": "Advanced Industrials and Automation Portfolio",
-      "description": "A live, theme-driven equity portfolio focused on advanced industrials, automation, and the infrastructure behind modern AI-led manufacturing expansion.",
-      "selectionRationale": "Holdings were chosen to represent the full stack: broad market ballast (VOO, VXUS), semiconductor design and fabrication (NVDA, TSM, ASML, AMAT, MU), industrial power and automation leaders (ETN, ROK, PH, GEV), and critical enablers such as gases, materials, and data-center infrastructure (LIN, APD, FCX, VRT). Position sizes favor larger, more liquid leaders while preserving targeted exposure to higher-upside satellites.",
+      "name": "AIA Portfolio",
+      "description": "A live, theme-driven equity portfolio focused on semiconductor leaders and the supply-chain infrastructure that supports chip design and fabrication.",
+      "selectionRationale": "Holdings emphasize core semiconductor designers and foundries (NVDA, TSM, ASML, AMAT, MU) along with supporting infrastructure and materials (LIN, APD, VRT, FCX), while retaining broad-market ballast for diversification.",
       "launchedAt": "2026-05-22T00:00:00.000Z",
       "whitepaper": {
-        "title": "Advanced Industrials and Automation Portfolio Whitepaper (AI-Generated)",
+        "title": "AIA Portfolio Whitepaper (AI-Generated)",
         "url": "/whitepapers/TechIndustryPortfolio.pdf",
         "aiGenerated": true,
         "disclosure": "This whitepaper was originally generated with AI and should be treated as informational content, not investment advice."

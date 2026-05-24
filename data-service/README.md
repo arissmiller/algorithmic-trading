@@ -232,7 +232,7 @@ Before exposing this service publicly, set these Railway environment variables:
 	- Default: `21600000` (6 hours)
 - `SEC_EDGAR_USER_AGENT`:
 	- Required for SEC data API access. Must identify your app and contact.
-	- Example: `SmartScale/1.0 admin@yourdomain.com`
+	- Example: `AIInvestmentPlatform/1.0 admin@yourdomain.com`
 - `SEC_EARNINGS_DATABASE_URL`:
 	- PostgreSQL connection string for persistent SEC earnings storage.
 	- If unset, falls back to `BACKTEST_CACHE_DATABASE_URL`.

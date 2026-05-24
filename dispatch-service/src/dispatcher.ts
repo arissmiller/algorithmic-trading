@@ -310,7 +310,7 @@ function buildEmailMessage(
   htmlBody: string;
 } {
   const actionLabel = signal.action.toUpperCase();
-  const subject = `[Smart Scale] ${actionLabel} ${signal.symbol} (${signal.timeframe})`;
+  const subject = `[AI Investment Platform] ${actionLabel} ${signal.symbol} (${signal.timeframe})`;
 
   const textBody = [
     `Hi ${profile.name ?? signal.userId},`,
@@ -349,7 +349,7 @@ function buildEmailMessage(
 
 function buildSmsMessage(signal: DispatchableTradingSignal): string {
   return [
-    `[Smart Scale] ${signal.action.toUpperCase()} ${signal.symbol}`,
+    `[AI Investment Platform] ${signal.action.toUpperCase()} ${signal.symbol}`,
     `TF ${signal.timeframe} | Score ${signal.signalScore.toFixed(2)}`,
     `Bar ${signal.barTime}`,
     trimToLength(signal.rationale.replaceAll(/\s+/g, " "), 100),
@@ -370,7 +370,7 @@ function buildTelegramMessage(
 
   return {
     chatId: telegram.chatId,
-    body: [`[Smart Scale] ${header}`, score, timing, rationale].join("\n"),
+    body: [`[AI Investment Platform] ${header}`, score, timing, rationale].join("\n"),
   };
 }
 

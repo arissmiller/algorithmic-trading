@@ -22,7 +22,7 @@ const CRYPTO_BENCHMARK_SYMBOL = "BTC/USD";
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/+$/, "");
 const API_PREFIX = API_BASE_URL ? `${API_BASE_URL}/api` : "/api";
 const ADVANCED_INDUSTRIALS_PORTFOLIO_KEY = "advanced_industrials_automation";
-const ADVANCED_INDUSTRIALS_PORTFOLIO_NAME = "Advanced Industrials and Automation Portfolio";
+const ADVANCED_INDUSTRIALS_PORTFOLIO_NAME = "AIA Portfolio";
 const ENTERPRISE_SOFTWARE_PORTFOLIO_KEY = "enterprise_software";
 const ENTERPRISE_SOFTWARE_PORTFOLIO_NAME = "Enterprise Software Portfolio";
 
@@ -79,8 +79,8 @@ const APP_PAGE_GROUPS: Array<{ label: string; pages: Array<{ id: AppPage; label:
   {
     label: "Live Portfolios",
     pages: [
-      { id: "advanced_industrials_live", label: "Adv Industrials Live" },
-      { id: "advanced_industrials_backtest", label: "Adv Industrials Backtest" },
+      { id: "advanced_industrials_live", label: "AIA Live" },
+      { id: "advanced_industrials_backtest", label: "AIA Backtest" },
       { id: "enterprise_software_live", label: "Enterprise Software Live" },
       { id: "enterprise_software_backtest", label: "Enterprise Software Backtest" },
     ],
@@ -536,7 +536,7 @@ export default function App() {
 
       <header className="border-b border-border bg-surface-1 shadow-[0_0_18px_rgba(70,215,255,0.12)]">
         <div className="flex items-center gap-2 border-b border-border/70 px-4 py-3 pr-24">
-          <span className="text-sm font-semibold tracking-tight">Smart Scale</span>
+          <span className="text-sm font-semibold tracking-tight">AI Investment Platform</span>
           <a
             href="https://arissmiller.net"
             className="ml-auto rounded border border-border bg-surface-2 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-text-secondary transition-colors hover:text-text-primary"
@@ -964,9 +964,9 @@ function AboutPage() {
   return (
     <div className="h-full overflow-auto p-4">
       <section className="mb-4">
-        <h2 className="text-sm font-semibold mb-2">About Smart Scale</h2>
+        <h2 className="text-sm font-semibold mb-2">About AI Investment Platform</h2>
         <p className="text-xs text-text-secondary max-w-4xl">
-          Smart Scale is a signal-weighted DCA engine. Instead of buying or selling only on fixed
+          AI Investment Platform is a signal-weighted DCA engine. Instead of buying or selling only on fixed
           intervals, it scores each day in your configured windows, then allocates more capital to
           the dates that look most favorable based on your selected indicators.
         </p>
