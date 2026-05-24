@@ -22,7 +22,7 @@ const CRYPTO_BENCHMARK_SYMBOL = "BTC/USD";
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/+$/, "");
 const API_PREFIX = API_BASE_URL ? `${API_BASE_URL}/api` : "/api";
 const ADVANCED_INDUSTRIALS_PORTFOLIO_KEY = "advanced_industrials_automation";
-const ADVANCED_INDUSTRIALS_PORTFOLIO_NAME = "AIA Portfolio";
+const ADVANCED_INDUSTRIALS_PORTFOLIO_NAME = "Advanced Industrials and Automation Portfolio";
 const ENTERPRISE_SOFTWARE_PORTFOLIO_KEY = "enterprise_software";
 const ENTERPRISE_SOFTWARE_PORTFOLIO_NAME = "Enterprise Software Portfolio";
 

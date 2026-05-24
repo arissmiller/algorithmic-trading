@@ -56,6 +56,12 @@ type WindowSignalBreakdown = {
   barsUsed: number;
 };
 
+type LiveSinceInfo = {
+  displayDate: string;
+  isoDate: string;
+  daysLive: number;
+};
+
 const SIGNAL_WINDOWS: Array<7 | 30 | 90> = [7, 30, 90];
 const PRICE_BAR_RETRY_BACKOFF_MS = 60_000;
 
@@ -81,7 +87,7 @@ export default function LivePortfolioPage({
 
   const portfolioUrl = buildPortfolioUrl(apiPrefix, portfolioKey);
   const whitepaperLink = toSafeWhitepaperUrl(snapshot?.whitepaper?.url);
-  const liveSinceLabel = formatLiveSinceDay(snapshot?.launchedAt ?? null);
+  const liveSinceInfo = buildLiveSinceInfo(snapshot?.launchedAt ?? null);
   const aiWhitepaperDisclosure = snapshot?.whitepaper?.disclosure?.trim()
     || "Transparency note: this portfolio whitepaper was originally AI-generated and should be reviewed before relying on it.";
   const portfolioDescription = snapshot?.description?.trim()
@@ -233,11 +239,24 @@ export default function LivePortfolioPage({
           <p className="text-xs text-text-secondary mt-1">
             {portfolioSelectionRationale}
           </p>
-          {liveSinceLabel ? (
-            <p className="text-[12px] text-text-secondary mt-1">
-              Live since {liveSinceLabel}
-            </p>
-          ) : null}
+          {liveSinceInfo ? (
+            <div className="mt-2 inline-flex max-w-full flex-col rounded border border-accent/35 bg-accent/10 px-2.5 py-2">
+              <div className="flex flex-wrap items-baseline gap-x-2">
+                <span className="text-[11px] font-semibold uppercase tracking-widest text-accent">
+                  Live Since
+                </span>
+                <span className="text-sm font-semibold text-text-primary">{liveSinceInfo.displayDate}</span>
+              </div>
+              <p className="mt-0.5 text-[11px] text-text-secondary">
+                Transparency: launch date {liveSinceInfo.isoDate} ({liveSinceInfo.daysLive} day
+                {liveSinceInfo.daysLive === 1 ? "" : "s"} live).
+              </p>
+            </div>
+          ) : (
+            <div className="mt-2 inline-flex max-w-full rounded border border-sell/30 bg-sell/10 px-2.5 py-1.5 text-[11px] text-sell">
+              Transparency note: launch date is unavailable in backend data.
+            </div>
+          )}
         </div>
         <button
           type="button"
@@ -686,15 +705,31 @@ function coerceOptionalNarrative(value: unknown): string | null {
   return trimmed || null;
 }
 
-function formatLiveSinceDay(value: string | null): string | null {
+function buildLiveSinceInfo(value: string | null): LiveSinceInfo | null {
   if (!value) return null;
   const parsed = new Date(value);
   if (!Number.isFinite(parsed.getTime())) return null;
-  return parsed.toLocaleDateString(undefined, {
+
+  const displayDate = parsed.toLocaleDateString(undefined, {
     year: "numeric",
     month: "long",
     day: "numeric",
   });
+
+  const launchDateUtc = Date.UTC(
+    parsed.getUTCFullYear(),
+    parsed.getUTCMonth(),
+    parsed.getUTCDate()
+  );
+  const now = new Date();
+  const todayUtc = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  const daysLive = Math.max(0, Math.floor((todayUtc - launchDateUtc) / 86_400_000));
+
+  return {
+    displayDate,
+    isoDate: parsed.toISOString().split("T")[0],
+    daysLive,
+  };
 }
 
 function normalizePortfolioKey(value: string): string {
