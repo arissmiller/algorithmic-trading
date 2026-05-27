@@ -83,8 +83,11 @@ export async function handleBotRoutes(
 
   if (url.pathname === "/api/bot/portfolio" && req.method === "GET") {
     const portfolioKey = url.searchParams.get("portfolio") ?? undefined;
+    const forceValueRefreshRaw = (url.searchParams.get("forceValueRefresh") ?? "").trim().toLowerCase();
+    const forceValueRefresh =
+      forceValueRefreshRaw === "1" || forceValueRefreshRaw === "true";
     try {
-      const snapshot = await getLivePortfolioSnapshot(portfolioKey);
+      const snapshot = await getLivePortfolioSnapshot(portfolioKey, { forceValueRefresh });
       res.setHeader("Cache-Control", "public, max-age=15, stale-while-revalidate=45");
       res.writeHead(200);
       res.end(JSON.stringify(snapshot));

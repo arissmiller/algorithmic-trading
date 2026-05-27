@@ -222,7 +222,96 @@
       "buyThreshold": 0.6,
       "sellThreshold": 0.4,
       "updatedAt": "2026-05-22T00:00:00.000Z"
+    },
+    {
+      "key": "healthcare_automation_innovation",
+      "name": "Healthcare Automation & Innovation Portfolio",
+      "description": "A concentrated thematic portfolio focused on companies driving the automation, accuracy, scalability, and cost-efficiency transformation of global healthcare systems.",
+      "selectionRationale": "The portfolio emphasizes categories with structural healthcare leverage: clinical automation (robotics/procedural systems), diagnostics and imaging, healthcare workflow infrastructure, biological computation, and continuous monitoring platforms that can reduce labor intensity while improving outcomes.",
+      "launchedAt": "2026-05-26T00:00:00.000Z",
+      "whitepaper": {
+        "title": "Healthcare Automation & Innovation Portfolio Whitepaper",
+        "url": "/whitepapers/HealthcareAutomationPortfolio.pdf",
+        "aiGenerated": false
+      },
+      "allocations": [
+        {
+          "symbol": "ISRG",
+          "targetPct": 12,
+          "summary": "Dominant surgical robotics ecosystem with recurring revenue and strong procedural lock-in.",
+          "wikipediaUrl": "https://en.wikipedia.org/wiki/Intuitive_Surgical"
+        },
+        {
+          "symbol": "TMO",
+          "targetPct": 10,
+          "summary": "Biotech and diagnostics infrastructure provider enabling scalable biological research.",
+          "wikipediaUrl": "https://en.wikipedia.org/wiki/Thermo_Fisher_Scientific"
+        },
+        {
+          "symbol": "DHR",
+          "targetPct": 10,
+          "summary": "Life sciences and diagnostics conglomerate with strong exposure to lab automation.",
+          "wikipediaUrl": "https://en.wikipedia.org/wiki/Danaher_Corporation"
+        },
+        {
+          "symbol": "SMMNY",
+          "targetPct": 9,
+          "summary": "Integrated imaging and diagnostics infrastructure with increasing AI capabilities.",
+          "wikipediaUrl": "https://en.wikipedia.org/wiki/Siemens_Healthineers"
+        },
+        {
+          "symbol": "GEHC",
+          "targetPct": 8,
+          "summary": "AI-assisted imaging and precision diagnostics platform.",
+          "wikipediaUrl": "https://en.wikipedia.org/wiki/GE_HealthCare"
+        },
+        {
+          "symbol": "SYK",
+          "targetPct": 8,
+          "summary": "Robotic orthopedic surgery and hospital automation systems.",
+          "wikipediaUrl": "https://en.wikipedia.org/wiki/Stryker_Corporation"
+        },
+        {
+          "symbol": "DXCM",
+          "targetPct": 7,
+          "summary": "Continuous monitoring and preventative healthcare data platform.",
+          "wikipediaUrl": "https://en.wikipedia.org/wiki/Dexcom"
+        },
+        {
+          "symbol": "VEEV",
+          "targetPct": 7,
+          "summary": "Healthcare-native workflow and regulatory infrastructure software.",
+          "wikipediaUrl": "https://en.wikipedia.org/wiki/Veeva_Systems"
+        },
+        {
+          "symbol": "TEM",
+          "targetPct": 7,
+          "summary": "Clinical and genomic AI platform built around proprietary oncology datasets.",
+          "wikipediaUrl": "https://en.wikipedia.org/wiki/Tempus_AI"
+        },
+        {
+          "symbol": "NTRA",
+          "targetPct": 6,
+          "summary": "Liquid biopsy and genetic testing platform focused on earlier disease detection.",
+          "wikipediaUrl": "https://en.wikipedia.org/wiki/Natera"
+        },
+        {
+          "symbol": "EXAS",
+          "targetPct": 4,
+          "summary": "Scalable molecular diagnostics and cancer screening infrastructure.",
+          "wikipediaUrl": "https://en.wikipedia.org/wiki/Exact_Sciences"
+        },
+        {
+          "symbol": "RXRX",
+          "targetPct": 2,
+          "summary": "AI-driven drug discovery and automated biological experimentation platform.",
+          "wikipediaUrl": "https://en.wikipedia.org/wiki/Recursion_Pharmaceuticals"
+        }
+      ],
+      "buyThreshold": 0.6,
+      "sellThreshold": 0.4,
+      "updatedAt": "2026-05-26T00:00:00.000Z"
     }
   ],
-  "updatedAt": "2026-05-22T00:00:00.000Z"
+  "updatedAt": "2026-05-26T00:00:00.000Z"
 }

@@ -45,6 +45,7 @@ Watchlist routes remain enabled:
 - `GET /api/bot/live-signals`
 - `GET /api/bot/live-signals/status`
 - `GET /api/bot/portfolio`
+  - Optional query params: `portfolio=<portfolio-key>`, `forceValueRefresh=1`
 - `PUT /api/bot/portfolio`
   - Optional query param: `portfolio=<portfolio-key>`
 - `GET /api/bot/paper-runner`
@@ -97,6 +98,10 @@ Live portfolio behavior:
 - Each portfolio can optionally define a `whitepaper` object (`title`, `url`, `aiGenerated`, optional `disclosure`) for UI linking and AI-origin transparency.
 - Each portfolio can optionally define `launchedAt` (any valid date string) to display a stable "Live since ..." day in the live portfolio header.
 - Each portfolio can optionally define `description` and `selectionRationale` to explain what the portfolio is and why those holdings were selected.
+- Each holding snapshot may include an informational `valueRating` block (grade, score, confidence, asset class, drivers).
+- Value ratings and normalized fundamentals are persistently cached (no TTL) to keep results stable until invalidation.
+- `forceValueRefresh=1` on `GET /api/bot/portfolio` recomputes and overwrites cached value ratings for that request.
+- Updating portfolio config clears the persistent value cache so ratings are recomputed on next request.
 - Edit that file directly to control target percentages.
 - The service auto-reloads file edits on the next portfolio request.
 
@@ -148,6 +153,9 @@ Before exposing this service publicly, set these Railway environment variables:
 - `LIVE_PORTFOLIO_SNAPSHOT_TTL_MS`:
 	- Cache TTL (ms) for computed `/api/bot/portfolio` snapshots.
 	- Default: `60000`
+- `LIVE_PORTFOLIO_VALUE_CACHE_FILE`:
+	- Optional path override for persistent live-portfolio value-rating/fundamentals cache.
+	- Default: `<data-service>/live-portfolio-value-cache.json`
 - `ENABLE_BACKEND_PAPER_CRYPTO_RUNNER`:
 	- Enables backend-managed paper trading bot startup at server boot.
 	- Default: `false`

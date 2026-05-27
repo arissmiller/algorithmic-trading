@@ -25,6 +25,8 @@ const ADVANCED_INDUSTRIALS_PORTFOLIO_KEY = "advanced_industrials_automation";
 const ADVANCED_INDUSTRIALS_PORTFOLIO_NAME = "Advanced Industrials and Automation Portfolio";
 const ENTERPRISE_SOFTWARE_PORTFOLIO_KEY = "enterprise_software";
 const ENTERPRISE_SOFTWARE_PORTFOLIO_NAME = "Enterprise Software Portfolio";
+const HEALTHCARE_AUTOMATION_PORTFOLIO_KEY = "healthcare_automation_innovation";
+const HEALTHCARE_AUTOMATION_PORTFOLIO_NAME = "Healthcare Automation & Innovation Portfolio";
 
 type AlpacaAccountSnapshot = {
   account: {
@@ -63,7 +65,9 @@ type AppPage =
   | "advanced_industrials_live"
   | "advanced_industrials_backtest"
   | "enterprise_software_live"
-  | "enterprise_software_backtest";
+  | "enterprise_software_backtest"
+  | "healthcare_automation_live"
+  | "healthcare_automation_backtest";
 type MarketBarsPayload = { bars: Bar[]; earningsEvents: EarningsEvent[] };
 
 const APP_PAGE_GROUPS: Array<{ label: string; pages: Array<{ id: AppPage; label: string }> }> = [
@@ -83,6 +87,8 @@ const APP_PAGE_GROUPS: Array<{ label: string; pages: Array<{ id: AppPage; label:
       { id: "advanced_industrials_backtest", label: "AIA Backtest" },
       { id: "enterprise_software_live", label: "Enterprise Software Live" },
       { id: "enterprise_software_backtest", label: "Enterprise Software Backtest" },
+      { id: "healthcare_automation_live", label: "Healthcare Automation Live" },
+      { id: "healthcare_automation_backtest", label: "Healthcare Automation Backtest" },
     ],
   },
 ];
@@ -655,6 +661,24 @@ export default function App() {
             apiPrefix={API_PREFIX}
             portfolioKey={ENTERPRISE_SOFTWARE_PORTFOLIO_KEY}
             defaultPortfolioName={ENTERPRISE_SOFTWARE_PORTFOLIO_NAME}
+          />
+        )}
+
+        {activePage === "healthcare_automation_live" && (
+          <LivePortfolioPage
+            key="healthcare_automation_live"
+            apiPrefix={API_PREFIX}
+            portfolioKey={HEALTHCARE_AUTOMATION_PORTFOLIO_KEY}
+            defaultPortfolioName={HEALTHCARE_AUTOMATION_PORTFOLIO_NAME}
+          />
+        )}
+
+        {activePage === "healthcare_automation_backtest" && (
+          <LivePortfolioBacktestPage
+            key="healthcare_automation_backtest"
+            apiPrefix={API_PREFIX}
+            portfolioKey={HEALTHCARE_AUTOMATION_PORTFOLIO_KEY}
+            defaultPortfolioName={HEALTHCARE_AUTOMATION_PORTFOLIO_NAME}
           />
         )}
       </main>

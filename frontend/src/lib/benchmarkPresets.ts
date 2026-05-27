@@ -29,6 +29,12 @@ const LIVE_PORTFOLIO_THEME_PRESETS: Record<string, BenchmarkPreset> = {
     symbols: ["IGV", "SKYY", "CLOU", "CIBR", "HACK"],
     description: "Software, cloud, and cybersecurity ETF peers.",
   },
+  healthcare_automation_innovation: {
+    id: "healthcare_automation_etf_peers",
+    label: "Healthcare Automation ETFs",
+    symbols: ["IHI", "XHE", "VHT", "XLV", "ARKG"],
+    description: "Medical devices, healthcare equipment, genomics, and broad healthcare ETF peers.",
+  },
 };
 
 export function defaultMarketBenchmarkSymbols(): string[] {

@@ -13,6 +13,29 @@ type LivePortfolioSignalWindow = {
   error: string | null;
 };
 
+type LivePortfolioValueRatingDriver = {
+  label: string;
+  effect: "positive" | "negative";
+  value: string;
+};
+
+type LivePortfolioValueRating = {
+  score: number | null;
+  grade: "A" | "B" | "C" | "D" | "F" | "NR";
+  confidence: number;
+  assetClass: "stock" | "etf" | "unknown";
+  asOf: string;
+  modelVersion: string;
+  drivers: LivePortfolioValueRatingDriver[];
+};
+
+type LivePortfolioValueRatingQuarterlyPoint = {
+  date: string;
+  score: number | null;
+  grade: LivePortfolioValueRating["grade"];
+  confidence: number;
+};
+
 type LivePortfolioHoldingSnapshot = {
   symbol: string;
   targetPct: number;
@@ -21,6 +44,8 @@ type LivePortfolioHoldingSnapshot = {
   wikipediaUrl: string | null;
   lastPrice: number | null;
   signals: LivePortfolioSignalWindow[];
+  valueRating?: LivePortfolioValueRating;
+  valueRatingQuarterly?: LivePortfolioValueRatingQuarterlyPoint[];
 };
 
 type LivePortfolioWhitepaper = {
@@ -64,6 +89,26 @@ type LiveSinceInfo = {
 
 const SIGNAL_WINDOWS: Array<7 | 30 | 90> = [7, 30, 90];
 const PRICE_BAR_RETRY_BACKOFF_MS = 60_000;
+const KNOWN_ETF_SYMBOLS = new Set<string>([
+  "ARKG",
+  "CIBR",
+  "CLOU",
+  "CNXT",
+  "HACK",
+  "IGV",
+  "IHI",
+  "QQQ",
+  "SKYY",
+  "SMH",
+  "SOXQ",
+  "SOXX",
+  "VHT",
+  "VOO",
+  "VXUS",
+  "XHE",
+  "XLV",
+  "XSD",
+]);
 
 export default function LivePortfolioPage({
   apiPrefix,
@@ -81,6 +126,7 @@ export default function LivePortfolioPage({
   const [priceBarsBySymbol, setPriceBarsBySymbol] = useState<Record<string, Bar[]>>({});
   const [priceBarsLoadingBySymbol, setPriceBarsLoadingBySymbol] = useState<Record<string, boolean>>({});
   const [priceBarsErrorBySymbol, setPriceBarsErrorBySymbol] = useState<Record<string, string | null>>({});
+  const [valueRatingModal, setValueRatingModal] = useState<LivePortfolioHoldingSnapshot | null>(null);
   const priceBarsBySymbolRef = useRef<Record<string, Bar[]>>({});
   const priceBarsLoadingBySymbolRef = useRef<Record<string, boolean>>({});
   const priceBarsNextRetryAtMsRef = useRef<Record<string, number>>({});
@@ -357,7 +403,9 @@ export default function LivePortfolioPage({
               const wikipediaUrl = toSafeWikipediaUrl(holding.wikipediaUrl);
               const symbolBars = priceBarsBySymbol[symbolKey] ?? [];
               const signalBreakdowns = computeWindowSignalBreakdowns(symbolBars);
-              const cadenceMarkers = buildCadenceEventMarkers(symbolBars);
+              const quarterlyValueMarkers = buildQuarterlyValueRatingMarkers(
+                holding.valueRatingQuarterly ?? []
+              );
 
               return (
                 <article key={holding.symbol} className="rounded border border-border/70 bg-surface-2 p-2.5">
@@ -392,6 +440,60 @@ export default function LivePortfolioPage({
                               </dd>
                             </div>
                             <div>
+                              <dt className="uppercase tracking-wide text-text-secondary">Value Rating</dt>
+                              <dd className="tabular-nums text-text-primary">
+                                {holding.valueRating ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => setValueRatingModal(holding)}
+                                    className="inline-flex items-center gap-1 cursor-pointer hover:opacity-75 transition-opacity"
+                                    title="Click to see how this rating was calculated"
+                                  >
+                                    <span
+                                      className={`inline-flex rounded border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${valueRatingGradeClass(holding.valueRating.grade)}`}
+                                    >
+                                      {holding.valueRating.grade}
+                                    </span>
+                                    <span>
+                                      {holding.valueRating.score == null
+                                        ? "NR"
+                                        : `${holding.valueRating.score.toFixed(1)}/100`}
+                                    </span>
+                                  </button>
+                                ) : (
+                                  "-"
+                                )}
+                              </dd>
+                              {holding.valueRating ? (
+                                <p className="mt-1 text-[10px] text-text-secondary">
+                                  Confidence {formatConfidencePct(holding.valueRating.confidence)} ·{" "}
+                                  {resolveValueRatingAssetClass(
+                                    holding.symbol,
+                                    holding.valueRating.assetClass
+                                  ).toUpperCase()}
+                                </p>
+                              ) : null}
+                              {holding.valueRating ? (
+                                <p className="mt-0.5 text-[10px] text-text-secondary">
+                                  As of {formatValueRatingAsOf(holding.valueRating.asOf)} · {holding.valueRating.modelVersion}
+                                </p>
+                              ) : null}
+                              {holding.valueRating?.drivers?.length ? (
+                                <div className="mt-1.5 space-y-0.5">
+                                  {holding.valueRating.drivers.slice(0, 2).map((driver) => (
+                                    <p
+                                      key={`${holding.symbol}-${driver.label}-${driver.value}`}
+                                      className={`text-[10px] ${
+                                        driver.effect === "positive" ? "text-buy" : "text-sell"
+                                      }`}
+                                    >
+                                      {driver.effect === "positive" ? "+" : "-"} {driver.label}: {driver.value}
+                                    </p>
+                                  ))}
+                                </div>
+                              ) : null}
+                            </div>
+                            <div>
                               <dt className="uppercase tracking-wide text-text-secondary">Last Price</dt>
                               <dd className="tabular-nums text-text-primary">
                                 {formatUsd(holding.lastPrice)}
@@ -420,7 +522,7 @@ export default function LivePortfolioPage({
                                   scaleInTrades={[]}
                                   scaleOutTrades={[]}
                                   earningsEvents={[]}
-                                  eventMarkers={cadenceMarkers}
+                                  eventMarkers={quarterlyValueMarkers}
                                   movingAverageDays={[7]}
                                 />
                               </div>
@@ -460,6 +562,191 @@ export default function LivePortfolioPage({
           </div>
         )}
       </section>
+
+      {valueRatingModal?.valueRating ? (
+        <ValueRatingDetailModal holding={valueRatingModal} onClose={() => setValueRatingModal(null)} />
+      ) : null}
+    </div>
+  );
+}
+
+function ValueRatingDetailModal({
+  holding,
+  onClose,
+}: {
+  holding: LivePortfolioHoldingSnapshot;
+  onClose: () => void;
+}) {
+  const vr = holding.valueRating!;
+  const resolvedAssetClass = resolveValueRatingAssetClass(holding.symbol, vr.assetClass);
+  const usingInferredAssetClass = vr.assetClass === "unknown" && resolvedAssetClass !== "unknown";
+
+  useEffect(() => {
+    function handleKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, [onClose]);
+
+  const gradeDescriptions: Record<LivePortfolioValueRating["grade"], { label: string; range: string }> = {
+    A: { label: "Excellent value", range: "80–100" },
+    B: { label: "Good value", range: "65–79" },
+    C: { label: "Fair value", range: "50–64" },
+    D: { label: "Below average", range: "35–49" },
+    F: { label: "Poor value", range: "0–34" },
+    NR: { label: "Not rated", range: "—" },
+  };
+
+  const isStock = resolvedAssetClass === "stock";
+  const isEtf = resolvedAssetClass === "etf";
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div className="relative w-full max-w-lg max-h-[85vh] overflow-y-auto rounded-lg border border-border bg-surface-1 shadow-2xl">
+        <div className="sticky top-0 flex items-center justify-between border-b border-border bg-surface-1 px-4 py-3">
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-semibold text-text-primary">{holding.symbol}</span>
+            <span className={`inline-flex rounded border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${valueRatingGradeClass(vr.grade)}`}>
+              {vr.grade}
+            </span>
+            <span className="text-sm text-text-primary">
+              {vr.score == null ? "NR" : `${vr.score.toFixed(1)}/100`}
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded p-1 text-text-secondary hover:text-text-primary transition-colors"
+            aria-label="Close"
+          >
+            ✕
+          </button>
+        </div>
+
+        <div className="space-y-4 p-4 text-[13px]">
+          <div>
+            <h3 className="mb-1.5 text-[11px] font-semibold uppercase tracking-widest text-text-secondary">What is Value Rating?</h3>
+            <p className="text-text-primary leading-relaxed">
+              Value Rating is a composite score (0–100) that evaluates whether a security is attractively priced relative to its fundamentals and recent price momentum. It combines multiple financial metrics into a single grade, updated whenever fresh fundamental data is available.
+            </p>
+          </div>
+
+          <div>
+            <h3 className="mb-1.5 text-[11px] font-semibold uppercase tracking-widest text-text-secondary">How It&apos;s Calculated</h3>
+            {isStock && (
+              <div className="space-y-2">
+                <p className="text-[12px] text-text-secondary">For stocks, the score is a weighted blend of three factor groups:</p>
+                <div className="rounded border border-border bg-surface-2 p-3 space-y-2">
+                  <FactorRow pct="45%" label="Valuation" desc="P/E Ratio, Price/Book, EV/EBITDA, Price/Sales — lower is better" />
+                  <FactorRow pct="35%" label="Quality & Growth" desc="Profit Margin, Return on Equity, Revenue Growth YoY, EPS Growth YoY — higher is better" />
+                  <FactorRow pct="20%" label="Technical Momentum" desc="Price location within 252-day range + 63-day momentum" />
+                </div>
+              </div>
+            )}
+            {isEtf && (
+              <div className="space-y-2">
+                <p className="text-[12px] text-text-secondary">For ETFs, the score focuses on cost efficiency and price momentum:</p>
+                <div className="rounded border border-border bg-surface-2 p-3 space-y-2">
+                  <FactorRow pct="40%" label="Cost Efficiency" desc="Expense Ratio + Portfolio Turnover — lower costs score higher" />
+                  <FactorRow pct="60%" label="Technical Momentum" desc="Price location within 252-day range + 63-day momentum" />
+                </div>
+              </div>
+            )}
+            {!isStock && !isEtf && (
+              <p className="text-[12px] text-text-secondary">Asset class is unknown — scoring methodology could not be determined.</p>
+            )}
+            {usingInferredAssetClass && (
+              <p className="mt-1 text-[11px] text-text-secondary">
+                Asset class metadata was unavailable from upstream fundamentals; this view inferred class from the symbol.
+              </p>
+            )}
+          </div>
+
+          <div>
+            <h3 className="mb-1.5 text-[11px] font-semibold uppercase tracking-widest text-text-secondary">Grade Scale</h3>
+            <div className="overflow-hidden rounded border border-border bg-surface-2">
+              {(["A", "B", "C", "D", "F", "NR"] as const).map((grade) => {
+                const { label, range } = gradeDescriptions[grade];
+                const isActive = grade === vr.grade;
+                return (
+                  <div
+                    key={grade}
+                    className={`flex items-center gap-3 border-b border-border/50 px-3 py-2 last:border-0 ${isActive ? "bg-surface-3" : ""}`}
+                  >
+                    <span className={`inline-flex w-8 justify-center rounded border px-1 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${valueRatingGradeClass(grade)}`}>
+                      {grade}
+                    </span>
+                    <span className="text-text-primary">{label}</span>
+                    <span className="ml-auto tabular-nums text-[12px] text-text-secondary">{range}</span>
+                    {isActive && <span className="text-[10px] text-text-secondary">← current</span>}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {vr.drivers && vr.drivers.length > 0 && (
+            <div>
+              <h3 className="mb-1.5 text-[11px] font-semibold uppercase tracking-widest text-text-secondary">Contributing Factors</h3>
+              <div className="overflow-hidden rounded border border-border bg-surface-2">
+                {vr.drivers.map((driver) => (
+                  <div
+                    key={`${driver.label}-${driver.value}`}
+                    className="flex items-center gap-2 border-b border-border/50 px-3 py-2 last:border-0"
+                  >
+                    <span className={`text-[12px] font-bold ${driver.effect === "positive" ? "text-buy" : "text-sell"}`}>
+                      {driver.effect === "positive" ? "+" : "−"}
+                    </span>
+                    <span className="text-text-primary">{driver.label}</span>
+                    <span className="ml-auto tabular-nums text-[12px] text-text-secondary">{driver.value}</span>
+                  </div>
+                ))}
+              </div>
+              <p className="mt-1.5 text-[11px] text-text-secondary">
+                Factors with the largest impact on the score are listed first. Positive factors raised the score; negative factors lowered it.
+              </p>
+            </div>
+          )}
+
+          <div className="rounded border border-border bg-surface-2 px-3 py-2.5 space-y-1.5">
+            <div className="flex items-center justify-between text-[12px]">
+              <span className="text-text-secondary">Confidence</span>
+              <span className="tabular-nums text-text-primary">{formatConfidencePct(vr.confidence)}</span>
+            </div>
+            <div className="flex items-center justify-between text-[12px]">
+              <span className="text-text-secondary">Asset class</span>
+              <span className="uppercase text-text-primary">{resolvedAssetClass}</span>
+            </div>
+            <div className="flex items-center justify-between text-[12px]">
+              <span className="text-text-secondary">Model</span>
+              <span className="font-mono text-text-primary">{vr.modelVersion}</span>
+            </div>
+            <div className="flex items-center justify-between text-[12px]">
+              <span className="text-text-secondary">Data as of</span>
+              <span className="tabular-nums text-text-primary">{formatValueRatingAsOf(vr.asOf)}</span>
+            </div>
+          </div>
+          <p className="text-[11px] text-text-secondary">
+            Confidence reflects how many expected data points were available. 100% means all metrics were present; lower values indicate some fundamental data was missing.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function FactorRow({ pct, label, desc }: { pct: string; label: string; desc: string }) {
+  return (
+    <div className="flex items-start gap-2">
+      <span className="mt-0.5 inline-flex w-10 shrink-0 justify-end tabular-nums text-[11px] font-semibold text-accent">{pct}</span>
+      <div className="text-[12px]">
+        <span className="font-medium text-text-primary">{label}</span>
+        <span className="text-text-secondary"> — {desc}</span>
+      </div>
     </div>
   );
 }
@@ -629,6 +916,24 @@ function actionColor(action: LivePortfolioSignalWindow["action"] | undefined): s
   return "#98b8d5";
 }
 
+function valueRatingGradeClass(grade: LivePortfolioValueRating["grade"]): string {
+  if (grade === "A" || grade === "B") return "border-buy/40 bg-buy/10 text-buy";
+  if (grade === "C") return "border-accent/40 bg-accent/10 text-accent";
+  if (grade === "D" || grade === "F") return "border-sell/40 bg-sell/10 text-sell";
+  return "border-border bg-surface-3 text-text-secondary";
+}
+
+function formatConfidencePct(value: number): string {
+  if (!Number.isFinite(value)) return "-";
+  return `${(clamp01(value) * 100).toFixed(1)}%`;
+}
+
+function formatValueRatingAsOf(value: string): string {
+  const parsed = new Date(value);
+  if (!Number.isFinite(parsed.getTime())) return value;
+  return parsed.toLocaleString();
+}
+
 function clamp01(value: number): number {
   if (!Number.isFinite(value)) return 0;
   if (value < 0) return 0;
@@ -638,6 +943,25 @@ function clamp01(value: number): number {
 
 function normalizeSymbol(value: string): string {
   return value.trim().toUpperCase();
+}
+
+function resolveValueRatingAssetClass(
+  symbol: string,
+  assetClass: LivePortfolioValueRating["assetClass"]
+): LivePortfolioValueRating["assetClass"] {
+  if (assetClass === "stock" || assetClass === "etf") return assetClass;
+  return inferAssetClassFromSymbol(symbol);
+}
+
+function inferAssetClassFromSymbol(symbol: string): LivePortfolioValueRating["assetClass"] {
+  const normalizedSymbol = normalizeSymbol(symbol);
+  if (!normalizedSymbol) return "unknown";
+  if (KNOWN_ETF_SYMBOLS.has(normalizedSymbol)) return "etf";
+
+  if (normalizedSymbol.includes("/")) return "unknown";
+  if (/^[A-Z]{5}X$/.test(normalizedSymbol)) return "etf";
+
+  return "stock";
 }
 
 function toSafeWikipediaUrl(value: string | null | undefined): string | null {
@@ -750,20 +1074,31 @@ function sortBarsByTime(bars: Bar[]): Bar[] {
   return [...bars].sort((a, b) => a.t.localeCompare(b.t));
 }
 
-function buildCadenceEventMarkers(bars: Bar[]): BacktestChartEventMarker[] {
-  if (bars.length === 0) return [];
-  return SIGNAL_WINDOWS.map((window) => {
-    const idx = Math.max(0, bars.length - window);
-    const bar = bars[idx] ?? bars[0];
-    return {
-      date: bar.t,
-      position: "aboveBar",
-      color: "#38bdf8",
-      shape: "circle",
-      size: 0.55,
-      text: `${window}D`,
-    } satisfies BacktestChartEventMarker;
-  });
+function buildQuarterlyValueRatingMarkers(
+  points: LivePortfolioValueRatingQuarterlyPoint[]
+): BacktestChartEventMarker[] {
+  if (!Array.isArray(points) || points.length === 0) return [];
+  return points
+    .map((point) => {
+      const scoreText =
+        point.score == null || !Number.isFinite(point.score) ? "NR" : Math.round(point.score).toString();
+      return {
+        date: point.date,
+        position: "belowBar",
+        color: valueRatingMarkerColor(point.grade),
+        shape: "square",
+        size: 0.5,
+        text: `Q ${point.grade} ${scoreText}`,
+      } satisfies BacktestChartEventMarker;
+    })
+    .sort((a, b) => a.date.localeCompare(b.date));
+}
+
+function valueRatingMarkerColor(grade: LivePortfolioValueRating["grade"]): string {
+  if (grade === "A" || grade === "B") return "#35ff9d";
+  if (grade === "C") return "#38bdf8";
+  if (grade === "D" || grade === "F") return "#ff5f7f";
+  return "#98b8d5";
 }
 
 function computeWindowSignalBreakdowns(bars: Bar[]): WindowSignalBreakdown[] {
