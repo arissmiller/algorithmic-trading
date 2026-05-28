@@ -232,7 +232,8 @@
       "whitepaper": {
         "title": "Healthcare Automation & Innovation Portfolio Whitepaper",
         "url": "/whitepapers/HealthcareAutomationPortfolio.pdf",
-        "aiGenerated": false
+        "aiGenerated": true,
+        "disclosure": "This whitepaper was originally generated with AI and should be treated as informational content, not investment advice."
       },
       "allocations": [
         {
