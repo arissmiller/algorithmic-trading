@@ -48,11 +48,17 @@ type LivePortfolioHoldingSnapshot = {
   valueRatingQuarterly?: LivePortfolioValueRatingQuarterlyPoint[];
 };
 
+type WhitepaperRevisionNote = {
+  date: string;
+  note: string;
+};
+
 type LivePortfolioWhitepaper = {
   title: string;
   url: string;
   aiGenerated: boolean;
   disclosure: string | null;
+  revisionNotes: WhitepaperRevisionNote[];
 };
 
 type LivePortfolioSnapshot = {
@@ -338,6 +344,20 @@ export default function LivePortfolioPage({
           </div>
           {snapshot.whitepaper.aiGenerated ? (
             <p className="mt-1 text-[11px] text-[#f5c16c]">{aiWhitepaperDisclosure}</p>
+          ) : null}
+          {snapshot.whitepaper.revisionNotes.length > 0 ? (
+            <div className="mt-2 border-t border-border/50 pt-2">
+              <p className="text-[11px] font-semibold text-text-secondary">Revision notes</p>
+              <ul className="mt-1 space-y-0.5">
+                {snapshot.whitepaper.revisionNotes.map((n, i) => (
+                  <li key={i} className="text-[11px] text-text-secondary">
+                    <span className="font-medium text-text-primary">{n.date}</span>
+                    {" — "}
+                    {n.note}
+                  </li>
+                ))}
+              </ul>
+            </div>
           ) : null}
         </section>
       ) : null}
@@ -1008,11 +1028,18 @@ function coerceWhitepaper(value: unknown): LivePortfolioWhitepaper | null {
   if (!title || !url) return null;
 
   const disclosureRaw = typeof record.disclosure === "string" ? record.disclosure.trim() : "";
+  const revisionNotes = Array.isArray(record.revisionNotes)
+    ? record.revisionNotes
+        .filter((n): n is Record<string, unknown> => !!n && typeof n === "object" && !Array.isArray(n))
+        .map((n) => ({ date: String(n.date ?? "").trim(), note: String(n.note ?? "").trim() }))
+        .filter((n) => n.date && n.note)
+    : [];
   return {
     title,
     url,
     aiGenerated: typeof record.aiGenerated === "boolean" ? record.aiGenerated : false,
     disclosure: disclosureRaw || null,
+    revisionNotes,
   };
 }
 

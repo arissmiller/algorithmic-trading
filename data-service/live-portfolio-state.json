@@ -125,13 +125,17 @@
       "key": "enterprise_software",
       "name": "Enterprise Software Portfolio",
       "description": "A live portfolio centered on enterprise software platforms that power cloud operations, developer workflows, data infrastructure, automation, and cybersecurity.",
-      "selectionRationale": "Selections prioritize durable software categories with recurring-revenue models and mission-critical adoption: cloud and productivity scale (MSFT), workflow and IT platforms (NOW), developer collaboration and DevSecOps (GTLB, TEAM), data/observability layers (SNOW, ESTC, DDOG), and security/identity controls (OKTA, PANW, CRWD). Additional weights in engagement and automation vendors (TWLO, PATH, ADBE, VMW) broaden exposure across core enterprise software budgets.",
+      "selectionRationale": "Selections prioritize durable software categories with recurring-revenue models and mission-critical adoption: cloud and productivity scale (MSFT), workflow and IT platforms (NOW), developer collaboration and DevSecOps (GTLB, TEAM), data/observability layers (SNOW, ESTC, DDOG), and security/identity controls (OKTA, PANW, CRWD). Additional weights in engagement and automation vendors (TWLO, PATH, ADBE) and infrastructure software (AVGO, which absorbed the VMware virtualization stack) broaden exposure across core enterprise software budgets.",
       "launchedAt": "2026-05-22T00:00:00.000Z",
       "whitepaper": {
         "title": "Enterprise Software Portfolio Whitepaper (AI-Generated)",
         "url": "/whitepapers/Enterprise%20Software%20Portfolio.pdf",
         "aiGenerated": true,
-        "disclosure": "This whitepaper was originally generated with AI and should be treated as informational content, not investment advice."
+        "disclosure": "This whitepaper was originally generated with AI and should be treated as informational content, not investment advice.",
+        "revisionNotes": [
+          { "date": "2026-06-03", "note": "VMW (VMware) removed — delisted following acquisition by Broadcom (AVGO) in November 2023." },
+          { "date": "2026-06-03", "note": "AVGO (Broadcom) added at 7% weight to maintain exposure to enterprise infrastructure software via the acquired VMware stack." }
+        ]
       },
       "allocations": [
         {
@@ -189,10 +193,10 @@
           "wikipediaUrl": "https://en.wikipedia.org/wiki/Palo_Alto_Networks"
         },
         {
-          "symbol": "VMW",
+          "symbol": "AVGO",
           "targetPct": 7,
-          "summary": "VMware pioneered enterprise virtualization software and now operates as part of Broadcom.",
-          "wikipediaUrl": "https://en.wikipedia.org/wiki/VMware"
+          "summary": "Broadcom designs and supplies semiconductor and software solutions including the acquired VMware virtualization stack.",
+          "wikipediaUrl": "https://en.wikipedia.org/wiki/Broadcom_Inc."
         },
         {
           "symbol": "DDOG",
@@ -233,7 +237,13 @@
         "title": "Healthcare Automation & Innovation Portfolio Whitepaper",
         "url": "/whitepapers/HealthcareAutomationPortfolio.pdf",
         "aiGenerated": true,
-        "disclosure": "This whitepaper was originally generated with AI and should be treated as informational content, not investment advice."
+        "disclosure": "This whitepaper was originally generated with AI and should be treated as informational content, not investment advice.",
+        "revisionNotes": [
+          { "date": "2026-06-03", "note": "EXAS (Exact Sciences) removed — acquired by Abbott Laboratories (ABT)." },
+          { "date": "2026-06-03", "note": "ABT (Abbott Laboratories) added at 4% weight, preserving molecular diagnostics exposure within a larger diagnostics platform." },
+          { "date": "2026-06-03", "note": "SMMNY (Siemens Healthineers) removed — not listed on US exchanges and unavailable via Alpaca data feed." },
+          { "date": "2026-06-03", "note": "MDT (Medtronic) added at 9% weight as the US-listed replacement for broad medical device and digital health exposure." }
+        ]
       },
       "allocations": [
         {
@@ -255,10 +265,10 @@
           "wikipediaUrl": "https://en.wikipedia.org/wiki/Danaher_Corporation"
         },
         {
-          "symbol": "SMMNY",
+          "symbol": "MDT",
           "targetPct": 9,
-          "summary": "Integrated imaging and diagnostics infrastructure with increasing AI capabilities.",
-          "wikipediaUrl": "https://en.wikipedia.org/wiki/Siemens_Healthineers"
+          "summary": "Medtronic develops medical devices and therapies across cardiac, surgical, and neurological categories.",
+          "wikipediaUrl": "https://en.wikipedia.org/wiki/Medtronic"
         },
         {
           "symbol": "GEHC",
@@ -297,10 +307,10 @@
           "wikipediaUrl": "https://en.wikipedia.org/wiki/Natera"
         },
         {
-          "symbol": "EXAS",
+          "symbol": "ABT",
           "targetPct": 4,
-          "summary": "Scalable molecular diagnostics and cancer screening infrastructure.",
-          "wikipediaUrl": "https://en.wikipedia.org/wiki/Exact_Sciences"
+          "summary": "Abbott Laboratories develops diagnostics, medical devices, and nutrition products; acquired Exact Sciences' molecular diagnostics capabilities.",
+          "wikipediaUrl": "https://en.wikipedia.org/wiki/Abbott_Laboratories"
         },
         {
           "symbol": "RXRX",

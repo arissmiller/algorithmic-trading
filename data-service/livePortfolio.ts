@@ -61,11 +61,17 @@ export interface LivePortfolioAllocation {
   wikipediaUrl?: string;
 }
 
+export interface LivePortfolioWhitepaperRevisionNote {
+  date: string;
+  note: string;
+}
+
 export interface LivePortfolioWhitepaper {
   title: string;
   url: string;
   aiGenerated: boolean;
   disclosure?: string;
+  revisionNotes?: LivePortfolioWhitepaperRevisionNote[];
 }
 
 export interface LivePortfolioConfig {
@@ -1365,11 +1371,13 @@ function parseOptionalWhitepaper(value: unknown): LivePortfolioWhitepaper | unde
   const url = parseWhitepaperUrl(value.url);
   const aiGenerated = parseWhitepaperAiGenerated(value.aiGenerated);
   const disclosure = parseOptionalWhitepaperDisclosure(value.disclosure);
+  const revisionNotes = parseWhitepaperRevisionNotes(value.revisionNotes);
   return {
     title,
     url,
     aiGenerated,
     ...(disclosure ? { disclosure } : {}),
+    ...(revisionNotes.length > 0 ? { revisionNotes } : {}),
   };
 }
 
@@ -1441,6 +1449,19 @@ function parseOptionalWhitepaperDisclosure(value: unknown): string | undefined {
     throw new Error("whitepaper.disclosure must be 500 characters or fewer.");
   }
   return trimmed;
+}
+
+function parseWhitepaperRevisionNotes(value: unknown): LivePortfolioWhitepaperRevisionNote[] {
+  if (!Array.isArray(value)) return [];
+  const notes: LivePortfolioWhitepaperRevisionNote[] = [];
+  for (const item of value) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+    const record = item as Record<string, unknown>;
+    const date = typeof record.date === "string" ? record.date.trim() : "";
+    const note = typeof record.note === "string" ? record.note.trim() : "";
+    if (date && note) notes.push({ date, note });
+  }
+  return notes;
 }
 
 function parseOptionalPortfolioDescription(value: unknown): string | undefined {
@@ -1604,6 +1625,7 @@ function cloneWhitepaper(whitepaper: LivePortfolioWhitepaper): LivePortfolioWhit
     url: whitepaper.url,
     aiGenerated: whitepaper.aiGenerated,
     ...(whitepaper.disclosure ? { disclosure: whitepaper.disclosure } : {}),
+    ...(whitepaper.revisionNotes?.length ? { revisionNotes: whitepaper.revisionNotes.map((n) => ({ ...n })) } : {}),
   };
 }
 

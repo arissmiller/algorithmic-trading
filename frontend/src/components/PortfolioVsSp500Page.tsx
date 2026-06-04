@@ -322,10 +322,6 @@ export default function PortfolioVsSp500Page({
           } with no data: ${skippedBenchmarks.join(", ")}.`
         );
       }
-      if (warnings.length > 0) {
-        setRunWarnings(warnings);
-      }
-
       const computed = computePortfolioBacktest({
         allocations: normalizedAvailableAllocations,
         totalRequestedWeightPct: availableAllocationWeightPct,
@@ -335,6 +331,13 @@ export default function PortfolioVsSp500Page({
         requestedEndDate: form.endDate,
         initialCapital: form.initialCapital,
       });
+
+      // Warn when the actual window is significantly shorter than requested.
+      const truncationWarnings = buildTruncationWarnings(computed, form.startDate, form.endDate, normalizedAvailableAllocations, barsBySymbol);
+      if (warnings.length > 0 || truncationWarnings.length > 0) {
+        setRunWarnings([...warnings, ...truncationWarnings]);
+      }
+
       setResult(computed);
       setSelectedBenchmarkSymbol((current) =>
         computed.benchmarks.some((benchmark) => benchmark.symbol === current)
@@ -929,7 +932,7 @@ function colorForBenchmark(index: number): string {
 }
 
 function defaultForm(defaultBenchmarkSymbols?: string[]): FormState {
-  const endDate = todayIsoDate();
+  const endDate = addDaysIso(todayIsoDate(), -1);
   const startDate = addDaysIso(endDate, -365 * 3);
   const benchmarkSymbols = normalizeBenchmarkSymbolList(defaultBenchmarkSymbols ?? []);
   const fallbackBenchmarks = defaultMarketBenchmarkSymbols();
@@ -1055,6 +1058,71 @@ function areSameSymbolSet(left: string[], right: string[]): boolean {
   const leftSet = new Set(left);
   if (leftSet.size !== right.length) return false;
   return right.every((symbol) => leftSet.has(symbol));
+}
+
+function buildTruncationWarnings(
+  result: PortfolioBacktestResult,
+  requestedStartDate: string,
+  requestedEndDate: string,
+  allocations: ParsedAllocation[],
+  barsBySymbol: Map<string, Bar[]>
+): string[] {
+  const warnings: string[] = [];
+
+  const startGapDays =
+    result.actualStartDate > requestedStartDate
+      ? Math.round(
+          (Date.parse(`${result.actualStartDate}T00:00:00Z`) -
+            Date.parse(`${requestedStartDate}T00:00:00Z`)) /
+            86_400_000
+        )
+      : 0;
+
+  const endGapDays =
+    result.actualEndDate < requestedEndDate
+      ? Math.round(
+          (Date.parse(`${requestedEndDate}T00:00:00Z`) -
+            Date.parse(`${result.actualEndDate}T00:00:00Z`)) /
+            86_400_000
+        )
+      : 0;
+
+  if (startGapDays > 10) {
+    const limitingSymbols = allocations
+      .map((a) => {
+        const closeMap = buildDailyCloseMap(barsBySymbol.get(a.symbol) ?? []);
+        const firstDate = Array.from(closeMap.keys()).sort()[0] ?? "";
+        return { symbol: a.symbol, firstDate };
+      })
+      .filter((s) => s.firstDate > requestedStartDate)
+      .sort((a, b) => (a.firstDate < b.firstDate ? 1 : -1));
+    const culprit = limitingSymbols[0];
+    warnings.push(
+      culprit
+        ? `Backtest starts ${startGapDays} days late (${result.actualStartDate}) because ${culprit.symbol} has no data before ${culprit.firstDate}.`
+        : `Backtest starts ${startGapDays} days later than requested (${result.actualStartDate}).`
+    );
+  }
+
+  if (endGapDays > 10) {
+    const limitingSymbols = allocations
+      .map((a) => {
+        const closeMap = buildDailyCloseMap(barsBySymbol.get(a.symbol) ?? []);
+        const dates = Array.from(closeMap.keys()).sort();
+        const lastDate = dates[dates.length - 1] ?? "";
+        return { symbol: a.symbol, lastDate };
+      })
+      .filter((s) => s.lastDate < requestedEndDate)
+      .sort((a, b) => (a.lastDate < b.lastDate ? 1 : -1));
+    const culprit = limitingSymbols[0];
+    warnings.push(
+      culprit
+        ? `Backtest ends ${endGapDays} days early (${result.actualEndDate}) because ${culprit.symbol} data stops at ${culprit.lastDate} — it may be delisted or unavailable.`
+        : `Backtest ends ${endGapDays} days earlier than requested (${result.actualEndDate}).`
+    );
+  }
+
+  return warnings;
 }
 
 function computePortfolioBacktest(input: PortfolioBacktestInput): PortfolioBacktestResult {
@@ -1289,7 +1357,11 @@ function computeCagrPct(
 }
 
 function todayIsoDate(): string {
-  return new Date().toISOString().split("T")[0];
+  const d = new Date();
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 function parseIsoDateToUtc(value: string): Date | null {
