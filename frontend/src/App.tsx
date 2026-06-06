@@ -5,6 +5,8 @@ import RunQueueBuilder, { BacktestRun } from "./components/RunQueueBuilder";
 import RunQueueResults, { RunQueueResult } from "./components/RunQueueResults";
 import AIControlCenter from "./components/AIControlCenter";
 import CryptoSelloffDetectionPage from "./components/CryptoSelloffDetectionPage";
+import CryptoGridBacktestPage from "./components/CryptoGridBacktestPage";
+import CryptoTrailingGridBacktestPage from "./components/CryptoTrailingGridBacktestPage";
 import PortfolioVsSp500Page from "./components/PortfolioVsSp500Page";
 import LivePortfolioPage from "./components/LivePortfolioPage";
 import LivePortfolioBacktestPage from "./components/LivePortfolioBacktestPage";
@@ -61,6 +63,8 @@ type AppPage =
   | "stocks_backtest"
   | "crypto_backtest"
   | "crypto_selloff_detection"
+  | "crypto_grid_backtest"
+  | "crypto_trailing_grid_backtest"
   | "portfolio_vs_sp500"
   | "advanced_industrials_live"
   | "advanced_industrials_backtest"
@@ -78,6 +82,8 @@ const APP_PAGE_GROUPS: Array<{ label: string; pages: Array<{ id: AppPage; label:
       { id: "portfolio_vs_sp500", label: "Weighted Portfolio Backtest" },
       { id: "crypto_backtest", label: "Crypto Backtest" },
       { id: "crypto_selloff_detection", label: "Crypto Selloff Detection" },
+      { id: "crypto_grid_backtest", label: "Fixed Grid Backtest" },
+      { id: "crypto_trailing_grid_backtest", label: "Trailing Grid Backtest" },
     ],
   },
   {
@@ -617,6 +623,20 @@ export default function App() {
         {activePage === "crypto_selloff_detection" && (
           <CryptoSelloffDetectionPage
             key="crypto_selloff_detection"
+            apiPrefix={API_PREFIX}
+          />
+        )}
+
+        {activePage === "crypto_grid_backtest" && (
+          <CryptoGridBacktestPage
+            key="crypto_grid_backtest"
+            apiPrefix={API_PREFIX}
+          />
+        )}
+
+        {activePage === "crypto_trailing_grid_backtest" && (
+          <CryptoTrailingGridBacktestPage
+            key="crypto_trailing_grid_backtest"
             apiPrefix={API_PREFIX}
           />
         )}
