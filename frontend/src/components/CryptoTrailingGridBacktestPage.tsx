@@ -6,6 +6,7 @@ import BacktestChart, {
 import EquityCurveChart from "./EquityCurveChart";
 import {
   runCryptoTrailingGridBacktest,
+  SelloffProtectionConfig,
   TrailingGridBacktestResult,
   TrailingGridTrade,
 } from "../lib/cryptoTrailingGridBacktest";
@@ -25,6 +26,11 @@ type FormState = {
   totalCapital: number;
   feeBps: number;
   slippageBps: number;
+  protectionEnabled: boolean;
+  protectionStartThreshold: number;
+  protectionEndThreshold: number;
+  protectionLiquidate: boolean;
+  protectionCooldownBars: number;
 };
 
 const inputClass =
@@ -75,6 +81,16 @@ export default function CryptoTrailingGridBacktestPage({ apiPrefix }: { apiPrefi
       if (bars.length < form.maPeriod + 5)
         throw new Error("Not enough market data for the selected MA period.");
 
+      const protection: SelloffProtectionConfig | undefined = form.protectionEnabled
+        ? {
+            enabled: true,
+            selloffStartThreshold: form.protectionStartThreshold,
+            selloffEndThreshold: form.protectionEndThreshold,
+            liquidateOnSelloff: form.protectionLiquidate,
+            cooldownBarsAfterEnd: form.protectionCooldownBars,
+          }
+        : undefined;
+
       const computed = runCryptoTrailingGridBacktest({
         symbol,
         bars,
@@ -88,6 +104,7 @@ export default function CryptoTrailingGridBacktestPage({ apiPrefix }: { apiPrefi
         totalCapital: form.totalCapital,
         feeBps: form.feeBps,
         slippageBps: form.slippageBps,
+        selloffProtection: protection,
       });
 
       setResult(computed);
@@ -117,7 +134,15 @@ export default function CryptoTrailingGridBacktestPage({ apiPrefix }: { apiPrefi
       size: 0.8,
       text: "R",
     }));
-    return [...tradeMarkers, ...rebalanceMarkers];
+    const protectionMarkers: BacktestChartEventMarker[] = result.protectionEvents.map((ev) => ({
+      date: ev.date,
+      position: ev.type === "selloff_started" ? ("aboveBar" as const) : ("belowBar" as const),
+      shape: ev.type === "selloff_started" ? ("arrowDown" as const) : ("arrowUp" as const),
+      color: ev.type === "selloff_started" ? "#ef4444" : "#a3e635",
+      size: 1.2,
+      text: ev.type === "selloff_started" ? "P" : "U",
+    }));
+    return [...tradeMarkers, ...rebalanceMarkers, ...protectionMarkers];
   }, [result]);
 
   // Build horizontal segments for each epoch's grid levels
@@ -313,6 +338,80 @@ export default function CryptoTrailingGridBacktestPage({ apiPrefix }: { apiPrefi
           </div>
         </div>
 
+        <div className="border-t border-border pt-3 space-y-3">
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={form.protectionEnabled}
+              onChange={(e) => setField("protectionEnabled", e.target.checked)}
+              className="accent-accent"
+            />
+            <span className="text-[11px] uppercase tracking-widest text-text-secondary font-semibold">
+              Selloff Protection
+            </span>
+          </label>
+
+          {form.protectionEnabled && (
+            <div className="space-y-3">
+              <p className="text-[11px] text-text-secondary">
+                Pauses new buys when a selloff is detected. Resumes after a cooldown. Red P markers = protect, green U markers = resume.
+              </p>
+              <div className="grid grid-cols-2 gap-2">
+                <Field label="Start Threshold">
+                  <input
+                    type="number"
+                    className={inputClass}
+                    value={form.protectionStartThreshold}
+                    min={0.1}
+                    max={1}
+                    step={0.01}
+                    onChange={(e) =>
+                      setField("protectionStartThreshold", Number(e.target.value))
+                    }
+                  />
+                </Field>
+                <Field label="End Threshold">
+                  <input
+                    type="number"
+                    className={inputClass}
+                    value={form.protectionEndThreshold}
+                    min={0.1}
+                    max={1}
+                    step={0.01}
+                    onChange={(e) =>
+                      setField("protectionEndThreshold", Number(e.target.value))
+                    }
+                  />
+                </Field>
+              </div>
+              <Field label="Cooldown Bars After End">
+                <input
+                  type="number"
+                  className={inputClass}
+                  value={form.protectionCooldownBars}
+                  min={0}
+                  max={50}
+                  step={1}
+                  onChange={(e) =>
+                    setField("protectionCooldownBars", Number(e.target.value))
+                  }
+                />
+              </Field>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={form.protectionLiquidate}
+                  onChange={(e) => setField("protectionLiquidate", e.target.checked)}
+                  className="accent-accent"
+                />
+                <span className="text-[11px] text-text-secondary">
+                  Liquidate open positions on selloff start
+                </span>
+              </label>
+            </div>
+          )}
+        </div>
+
         <button
           type="button"
           onClick={() => void runBacktest()}
@@ -390,11 +489,20 @@ export default function CryptoTrailingGridBacktestPage({ apiPrefix }: { apiPrefi
                   sub={`SMA-${form.maPeriod} · ±${form.halfRangePct}% range`}
                   positive={null}
                 />
+                {form.protectionEnabled ? (
+                  <StatCard
+                    label="Protections"
+                    value={String(summary.protectionEventsCount)}
+                    sub="selloff pauses triggered"
+                    positive={null}
+                  />
+                ) : null}
               </div>
             ) : null}
 
             <div className="shrink-0 px-4 py-1.5 border-b border-border/50 text-[11px] text-text-secondary">
               Price chart — gray lines = grid levels per epoch, blue squares = rebalances, green/orange = fills
+              {form.protectionEnabled ? ", red P = selloff protect, green U = resume" : ""}
             </div>
             <div className="h-60 border-b border-border">
               <BacktestChart
@@ -463,6 +571,9 @@ function TradeRow({ trade }: { trade: TrailingGridTrade }) {
       </td>
       <td className={`px-3 py-2 font-semibold ${isBuy ? "text-buy" : "text-sell"}`}>
         {isBuy ? "Buy" : "Sell"}
+        {trade.isProtectionLiquidation ? (
+          <span className="ml-1 text-[10px] font-normal text-text-secondary">[P]</span>
+        ) : null}
       </td>
       <td className="px-3 py-2 text-right tabular-nums text-text-primary">
         {formatPrice(trade.gridLevel)}
@@ -500,6 +611,11 @@ function defaultForm(): FormState {
     totalCapital: 10000,
     feeBps: 10,
     slippageBps: 5,
+    protectionEnabled: false,
+    protectionStartThreshold: 0.74,
+    protectionEndThreshold: 0.56,
+    protectionLiquidate: false,
+    protectionCooldownBars: 3,
   };
 }
 

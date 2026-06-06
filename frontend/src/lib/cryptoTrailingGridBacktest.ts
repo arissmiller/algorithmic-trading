@@ -1,18 +1,39 @@
-import { Bar } from "./signals";
+import { Bar, SignalWeight } from "./signals";
+import {
+  runCryptoSelloffDetectionBacktest,
+  SelloffDetectionEvent,
+} from "./cryptoSelloffDetectionBacktest";
+
+const DEFAULT_PROTECTION_SIGNALS: SignalWeight[] = [
+  { signal: { type: "selloff_pressure", period: 8 }, weight: 0.4 },
+  { signal: { type: "volume", period: 20 }, weight: 0.25 },
+  { signal: { type: "rsi", period: 7 }, weight: 0.15 },
+  { signal: { type: "bollinger_band", period: 20, std_dev: 2.5 }, weight: 0.2 },
+];
+
+export interface SelloffProtectionConfig {
+  enabled: boolean;
+  signals?: SignalWeight[];
+  selloffStartThreshold: number;  // e.g. 0.74
+  selloffEndThreshold: number;    // e.g. 0.56
+  liquidateOnSelloff: boolean;    // close all open positions on selloff start
+  cooldownBarsAfterEnd: number;   // bars to wait before re-arming buys after selloff ends
+}
 
 export interface CryptoTrailingGridBacktestConfig {
   symbol: string;
   bars: Bar[];
   startDate: string;
   endDate: string;
-  maPeriod: number;              // SMA period used to track grid center (e.g. 20)
-  rebalanceThresholdPct: number; // % shift in MA before recentering grid (e.g. 3)
-  halfRangePct: number;          // grid extends ±halfRangePct% from MA center (e.g. 10)
-  gridCount: number;             // number of cells
+  maPeriod: number;
+  rebalanceThresholdPct: number;
+  halfRangePct: number;
+  gridCount: number;
   spacing: "arithmetic" | "geometric";
   totalCapital: number;
   feeBps: number;
   slippageBps: number;
+  selloffProtection?: SelloffProtectionConfig;
 }
 
 export interface TrailingGridTrade {
@@ -24,7 +45,8 @@ export interface TrailingGridTrade {
   notionalUsd: number;
   cashAfter: number;
   positionQtyAfter: number;
-  rebalanceIndex: number; // which epoch this trade belongs to
+  rebalanceIndex: number;
+  isProtectionLiquidation?: boolean;
 }
 
 export interface RebalanceEvent {
@@ -41,6 +63,7 @@ export interface TrailingGridEquityPoint {
   positionQty: number;
   price: number;
   maValue: number | null;
+  selloffActive: boolean;
 }
 
 export interface TrailingGridSummary {
@@ -53,6 +76,7 @@ export interface TrailingGridSummary {
   gridCyclesCompleted: number;
   avgPnLPerCycle: number;
   rebalanceCount: number;
+  protectionEventsCount: number;
   maxDrawdownPct: number;
   buyAndHoldReturn: number;
   buyAndHoldReturnPct: number;
@@ -66,6 +90,7 @@ export interface TrailingGridBacktestResult {
   trades: TrailingGridTrade[];
   equityCurve: TrailingGridEquityPoint[];
   rebalanceEvents: RebalanceEvent[];
+  protectionEvents: SelloffDetectionEvent[];
   barsUsed: Bar[];
 }
 
@@ -126,6 +151,7 @@ function emptyResult(
       gridCyclesCompleted: 0,
       avgPnLPerCycle: 0,
       rebalanceCount: 0,
+      protectionEventsCount: 0,
       maxDrawdownPct: 0,
       buyAndHoldReturn: 0,
       buyAndHoldReturnPct: 0,
@@ -133,6 +159,7 @@ function emptyResult(
     trades: [],
     equityCurve: [],
     rebalanceEvents: [],
+    protectionEvents: [],
     barsUsed: [],
   };
 }
@@ -153,6 +180,7 @@ export function runCryptoTrailingGridBacktest(
     totalCapital,
     feeBps,
     slippageBps,
+    selloffProtection,
   } = config;
 
   if (gridCount < 2 || totalCapital <= 0 || halfRangePct <= 0 || maPeriod < 2) {
@@ -162,13 +190,35 @@ export function runCryptoTrailingGridBacktest(
   const totalBps = feeBps + slippageBps;
   const capitalPerCell = totalCapital / gridCount;
 
-  // Need enough bars before startDate for MA warmup
   const allBarsInRange = bars.filter((b) => b.t >= startDate && b.t <= endDate);
   if (allBarsInRange.length === 0) return emptyResult(symbol, startDate, endDate, totalCapital);
 
-  // Build SMA over all bars (including pre-startDate), then index them
+  // --- Selloff protection pre-pass ---
+  let selloffActiveMap: Map<string, boolean> | null = null;
+  let protectionEvents: SelloffDetectionEvent[] = [];
+
+  if (selloffProtection?.enabled) {
+    const detectionResult = runCryptoSelloffDetectionBacktest({
+      symbol,
+      bars, // full array for signal warmup
+      startDate,
+      endDate,
+      signals: selloffProtection.signals ?? DEFAULT_PROTECTION_SIGNALS,
+      selloffStartThreshold: selloffProtection.selloffStartThreshold,
+      selloffEndThreshold: selloffProtection.selloffEndThreshold,
+      minSelloffBars: 2,
+      minGapBars: 2,
+      volumeLookbackPeriod: 20,
+      simulateBarFormation: false,
+    });
+    selloffActiveMap = new Map(
+      detectionResult.scoreTimeline.map((pt) => [pt.date, pt.inSelloff])
+    );
+    protectionEvents = detectionResult.events;
+  }
+
+  // --- SMA series ---
   const smaFull = buildSMA(bars, maPeriod);
-  // Map bar timestamps to their SMA values
   const smaByTime = new Map<string, number | null>();
   for (let i = 0; i < bars.length; i++) smaByTime.set(bars[i].t, smaFull[i]);
 
@@ -185,29 +235,22 @@ export function runCryptoTrailingGridBacktest(
   const equityCurve: TrailingGridEquityPoint[] = [];
   const rebalanceEvents: RebalanceEvent[] = [];
 
-  // pendingBuys: buyPrice → sellPrice (both are grid level prices)
-  const pendingBuys = new Map<number, number>();
-
-  // pendingSells: sellPrice → { qty, buyCost }
+  const pendingBuys = new Map<number, number>(); // buyPrice → sellPrice
   const pendingSells = new Map<number, { qty: number; buyCost: number }>();
 
   let gridCenter: number | null = null;
+  let wasInSelloff = false;
+  let cooldownBarsRemaining = 0;
 
   function rebalance(bar: Bar, maValue: number): void {
     const levels = buildGridLevels(maValue, halfRangePct, gridCount, spacing);
     gridCenter = maValue;
-
     rebalanceEvents.push({ t: bar.t, maValue, newLevels: levels });
-
-    // Cancel all pending buys — capital wasn't reserved, so no effect on cash
     pendingBuys.clear();
-
-    // Arm new buy orders for levels below current price
     for (let i = 0; i < gridCount; i++) {
       const buyPrice = levels[i];
       const sellPrice = levels[i + 1];
-      if (buyPrice >= bar.c) continue; // only arm buys below current price
-      // Skip if we already have a pending sell targeting this sell level (would double-buy same cell)
+      if (buyPrice >= bar.c) continue;
       if (pendingSells.has(sellPrice)) continue;
       pendingBuys.set(buyPrice, sellPrice);
     }
@@ -215,11 +258,47 @@ export function runCryptoTrailingGridBacktest(
 
   for (const bar of allBarsInRange) {
     const maValue = smaByTime.get(bar.t) ?? null;
+    const inSelloff = selloffActiveMap?.get(bar.t) ?? false;
+    const currentEpoch = rebalanceEvents.length - 1;
 
-    // Check if we need to initialize or rebalance
-    if (maValue !== null) {
+    // --- Selloff transition: start ---
+    if (inSelloff && !wasInSelloff) {
+      pendingBuys.clear();
+
+      if (selloffProtection?.liquidateOnSelloff && pendingSells.size > 0) {
+        for (const [sellPrice, position] of Array.from(pendingSells.entries())) {
+          const execPrice = withFriction(bar.c, "sell", totalBps);
+          const proceeds = position.qty * execPrice;
+          const cyclePnL = proceeds - position.buyCost;
+          cash += proceeds;
+          positionQty -= position.qty;
+          realizedPnL += cyclePnL;
+          totalFeesPaid += position.qty * Math.abs(bar.c - execPrice);
+          trades.push({
+            t: bar.t,
+            side: "sell",
+            gridLevel: sellPrice,
+            execPrice,
+            qty: position.qty,
+            notionalUsd: proceeds,
+            cashAfter: cash,
+            positionQtyAfter: positionQty,
+            rebalanceIndex: Math.max(0, currentEpoch),
+            isProtectionLiquidation: true,
+          });
+        }
+        pendingSells.clear();
+      }
+    }
+
+    // --- Selloff transition: end ---
+    if (!inSelloff && wasInSelloff) {
+      cooldownBarsRemaining = selloffProtection?.cooldownBarsAfterEnd ?? 0;
+    }
+
+    // --- Rebalancing (skipped during selloff and cooldown) ---
+    if (!inSelloff && cooldownBarsRemaining <= 0 && maValue !== null) {
       if (gridCenter === null) {
-        // First valid MA — initialize the grid
         rebalance(bar, maValue);
       } else {
         const shift = Math.abs(maValue - gridCenter) / gridCenter;
@@ -229,8 +308,14 @@ export function runCryptoTrailingGridBacktest(
       }
     }
 
-    const bullish = bar.c >= bar.o;
-    const currentEpoch = rebalanceEvents.length - 1;
+    // Decrement cooldown after possibly triggering rebalance above
+    if (cooldownBarsRemaining > 0) {
+      cooldownBarsRemaining--;
+      // Rebalance on the bar that ends the cooldown
+      if (cooldownBarsRemaining === 0 && maValue !== null) {
+        rebalance(bar, maValue);
+      }
+    }
 
     function tryBuy(buyPrice: number, sellPrice: number): void {
       if (bar.l > buyPrice) return;
@@ -253,13 +338,11 @@ export function runCryptoTrailingGridBacktest(
         notionalUsd: cost,
         cashAfter: cash,
         positionQtyAfter: positionQty,
-        rebalanceIndex: currentEpoch,
+        rebalanceIndex: Math.max(0, rebalanceEvents.length - 1),
       });
 
-      // Place sell at sellPrice — if already occupied, place at same price with combined qty
       const existing = pendingSells.get(sellPrice);
       if (existing) {
-        // Merge: combine qty and cost (weighted average isn't needed; track total)
         pendingSells.set(sellPrice, {
           qty: existing.qty + qty,
           buyCost: existing.buyCost + cost,
@@ -291,18 +374,31 @@ export function runCryptoTrailingGridBacktest(
         notionalUsd: proceeds,
         cashAfter: cash,
         positionQtyAfter: positionQty,
-        rebalanceIndex: currentEpoch,
+        rebalanceIndex: Math.max(0, rebalanceEvents.length - 1),
       });
-      // Capital returns to cash; next rebalance will re-deploy if appropriate
     }
 
+    const bullish = bar.c >= bar.o;
+
     if (bullish) {
-      for (const [buyPrice, sellPrice] of Array.from(pendingBuys.entries())) tryBuy(buyPrice, sellPrice);
-      for (const [sellPrice, pos] of Array.from(pendingSells.entries())) trySell(sellPrice, pos);
+      // Buys only fire when protection is not active
+      if (!inSelloff && cooldownBarsRemaining <= 0) {
+        for (const [buyPrice, sellPrice] of Array.from(pendingBuys.entries()))
+          tryBuy(buyPrice, sellPrice);
+      }
+      // Sells always fire — let existing positions exit on recovery
+      for (const [sellPrice, pos] of Array.from(pendingSells.entries()))
+        trySell(sellPrice, pos);
     } else {
-      for (const [sellPrice, pos] of Array.from(pendingSells.entries())) trySell(sellPrice, pos);
-      for (const [buyPrice, sellPrice] of Array.from(pendingBuys.entries())) tryBuy(buyPrice, sellPrice);
+      for (const [sellPrice, pos] of Array.from(pendingSells.entries()))
+        trySell(sellPrice, pos);
+      if (!inSelloff && cooldownBarsRemaining <= 0) {
+        for (const [buyPrice, sellPrice] of Array.from(pendingBuys.entries()))
+          tryBuy(buyPrice, sellPrice);
+      }
     }
+
+    wasInSelloff = inSelloff;
 
     const positionValue = positionQty * bar.c;
     equityCurve.push({
@@ -313,6 +409,7 @@ export function runCryptoTrailingGridBacktest(
       positionQty,
       price: bar.c,
       maValue,
+      selloffActive: inSelloff,
     });
   }
 
@@ -330,6 +427,10 @@ export function runCryptoTrailingGridBacktest(
     if (dd > maxDrawdownPct) maxDrawdownPct = dd;
   }
 
+  const protectionEventsCount = protectionEvents.filter(
+    (e) => e.type === "selloff_started"
+  ).length;
+
   return {
     symbol,
     startDate,
@@ -344,6 +445,7 @@ export function runCryptoTrailingGridBacktest(
       gridCyclesCompleted,
       avgPnLPerCycle: gridCyclesCompleted > 0 ? realizedPnL / gridCyclesCompleted : 0,
       rebalanceCount: rebalanceEvents.length,
+      protectionEventsCount,
       maxDrawdownPct,
       buyAndHoldReturn,
       buyAndHoldReturnPct: totalCapital > 0 ? (buyAndHoldReturn / totalCapital) * 100 : 0,
@@ -351,6 +453,7 @@ export function runCryptoTrailingGridBacktest(
     trades,
     equityCurve,
     rebalanceEvents,
+    protectionEvents,
     barsUsed: allBarsInRange,
   };
 }
