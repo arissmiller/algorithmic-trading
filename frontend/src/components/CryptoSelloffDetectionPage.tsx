@@ -10,6 +10,8 @@ import {
 } from "../lib/cryptoSelloffDetectionBacktest";
 import type { Bar, SignalWeight } from "../lib/signals";
 import { apiFetch } from "../lib/apiFetch";
+import { addDaysIso } from "../features/backtesting/dateUtils";
+import { rangeForStartDate } from "../features/backtesting/rangeUtils";
 
 type StrategyProfile = {
   key: string;
@@ -491,19 +493,6 @@ function normalizeCryptoSymbol(value: string): string {
   return value.trim().toUpperCase().replace(/[-_]/g, "/");
 }
 
-function rangeForStartDate(startDate: string): string {
-  const startTs = Date.parse(`${startDate}T00:00:00Z`);
-  if (!Number.isFinite(startTs)) return "2y";
-
-  const warmupDays = 90;
-  const daysBack = (Date.now() - startTs) / 86_400_000;
-
-  if (daysBack > 5 * 365 - warmupDays) return "max";
-  if (daysBack > 2 * 365 - warmupDays) return "5y";
-  if (daysBack > 365 - warmupDays) return "2y";
-  return "1y";
-}
-
 function todayIsoDate(): string {
   return new Date().toISOString().slice(0, 10);
 }
@@ -534,12 +523,6 @@ function addMonthsIso(isoDate: string, months: number): string {
   ).getUTCDate();
   const clampedDay = Math.min(day, lastDayOfTargetMonth);
   const dt = new Date(Date.UTC(targetYear, targetMonthIndex, clampedDay));
-  return dt.toISOString().slice(0, 10);
-}
-
-function addDaysIso(isoDate: string, days: number): string {
-  const [year, month, day] = isoDate.split("-").map((v) => Number(v));
-  const dt = new Date(Date.UTC(year, month - 1, day + days));
   return dt.toISOString().slice(0, 10);
 }
 

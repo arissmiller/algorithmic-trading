@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { STRATEGY_PRESETS, StrategyPresetKey } from "./StrategyBuilder";
+import { addDaysIso } from "../features/backtesting/dateUtils";
 
 export interface BacktestRun {
   id: string;
@@ -32,11 +33,6 @@ interface Props {
 
 const input =
   "w-full rounded border border-border bg-surface-3 px-2.5 py-1.5 text-xs text-text-primary focus:border-accent focus:outline-none";
-
-function addDaysIso(isoDate: string, days: number): string {
-  const [y, m, d] = isoDate.split("-").map(Number);
-  return new Date(Date.UTC(y, m - 1, d + days)).toISOString().split("T")[0];
-}
 
 function durationLabel(days: number): string {
   const match = DURATION_OPTIONS.find((o) => o.durationDays === days);
