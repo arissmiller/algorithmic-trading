@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import type { BacktestRun } from "../../components/RunQueueBuilder";
 import { executeBacktestRun, buildFormFromRun } from "./runner";
 import { normalizeSymbol } from "./symbolUtils";
@@ -77,11 +77,19 @@ export function useBacktestingWorkspace(benchmarkSymbol: string) {
     setRunQueueResults(results);
   }
 
+  const resetWorkspace = useCallback(() => {
+    setRuns([]);
+    setRunQueueResults([]);
+    setRunning(false);
+    barsCacheRef.current = {};
+  }, []);
+
   return {
     runs,
     setRuns,
     runQueueResults,
     running,
     handleRunAll,
+    resetWorkspace,
   };
 }

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { STRATEGY_PRESETS, StrategyPresetKey } from "./StrategyBuilder";
 import { addDaysIso } from "../features/backtesting/dateUtils";
 
@@ -83,6 +83,11 @@ export default function RunQueueBuilder({
   const visiblePresets = STRATEGY_PRESETS.filter(
     (preset) => symbolMode === "crypto" || !CRYPTO_ONLY_PRESETS.has(preset.key)
   );
+
+  useEffect(() => {
+    setAdding(false);
+    setDraft(defaultDraft(defaultSymbol));
+  }, [defaultSymbol, symbolMode]);
 
   const patchDraft = <K extends keyof Omit<BacktestRun, "id">>(
     k: K,

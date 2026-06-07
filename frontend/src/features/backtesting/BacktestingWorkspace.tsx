@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import RunQueueBuilder from "../../components/RunQueueBuilder";
 import RunQueueResults from "../../components/RunQueueResults";
 import { useBacktestingWorkspace } from "./useBacktestingWorkspace";
@@ -13,8 +14,12 @@ export default function BacktestingWorkspace({
   defaultSymbol: string;
   symbolMode: "stocks" | "crypto";
 }) {
-  const { runs, setRuns, runQueueResults, running, handleRunAll } =
+  const { runs, setRuns, runQueueResults, running, handleRunAll, resetWorkspace } =
     useBacktestingWorkspace(benchmarkSymbol);
+
+  useEffect(() => {
+    resetWorkspace();
+  }, [benchmarkSymbol, defaultSymbol, symbolMode, resetWorkspace]);
 
   return (
     <div className="flex h-full overflow-hidden">
