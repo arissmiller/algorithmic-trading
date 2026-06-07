@@ -2,6 +2,10 @@ export function normalizeSymbol(symbol: string): string {
   return symbol.trim().toUpperCase();
 }
 
+export function normalizeCryptoSymbol(symbol: string): string {
+  return normalizeSymbol(symbol).replace(/[-_]/g, "/");
+}
+
 export function isLikelyCryptoSymbol(symbol: string): boolean {
   const normalized = normalizeSymbol(symbol);
   if (!normalized) return false;

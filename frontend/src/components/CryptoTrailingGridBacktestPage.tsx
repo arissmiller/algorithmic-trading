@@ -2,6 +2,7 @@ import { ReactNode, useMemo, useRef, useState } from "react";
 import BacktestChart, {
   BacktestChartEventMarker,
   BacktestChartHorizontalSegment,
+  BacktestChartLineOverlay,
 } from "./BacktestChart";
 import EquityCurveChart from "./EquityCurveChart";
 import {
@@ -10,8 +11,15 @@ import {
   TrailingGridBacktestResult,
   TrailingGridTrade,
 } from "../lib/cryptoTrailingGridBacktest";
-import type { Bar } from "../lib/signals";
-import { apiFetch } from "../lib/apiFetch";
+import type { MarketBarsPayload } from "../features/backtesting/types";
+import { fetchMarketBarsCached } from "../features/backtesting/marketData";
+import { normalizeCryptoSymbol } from "../features/backtesting/symbolUtils";
+import {
+  normalizeIsoDateInput,
+  todayIsoDate,
+  yearsAgoIso,
+} from "../features/backtesting/dateUtils";
+import { rangeForStartDate } from "../features/backtesting/rangeUtils";
 
 type FormState = {
   symbol: string;
@@ -41,7 +49,7 @@ export default function CryptoTrailingGridBacktestPage({ apiPrefix }: { apiPrefi
   const [running, setRunning] = useState(false);
   const [runError, setRunError] = useState<string | null>(null);
   const [result, setResult] = useState<TrailingGridBacktestResult | null>(null);
-  const barsCacheRef = useRef<Record<string, Bar[]>>({});
+  const barsCacheRef = useRef<Record<string, MarketBarsPayload>>({});
 
   function setField<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -64,19 +72,15 @@ export default function CryptoTrailingGridBacktestPage({ apiPrefix }: { apiPrefi
       if (form.halfRangePct <= 0) throw new Error("Half-range % must be positive.");
       if (form.totalCapital <= 0) throw new Error("Total capital must be positive.");
 
-      const range = rangeForStartDate(startDate, form.maPeriod);
-      const params = new URLSearchParams({ symbol, range });
-      if (form.timeframe !== "1Day") params.set("timeframe", form.timeframe);
-
-      const cacheKey = `${apiPrefix}::${symbol}::${form.timeframe}::${range}`;
-      let bars = barsCacheRef.current[cacheKey];
-      if (!bars) {
-        const res = await apiFetch(`${apiPrefix}/bars?${params.toString()}`);
-        const body = (await res.json().catch(() => ({}))) as { error?: string; bars?: Bar[] };
-        if (!res.ok) throw new Error(body.error ?? `HTTP ${res.status}`);
-        bars = Array.isArray(body.bars) ? body.bars : [];
-        barsCacheRef.current[cacheKey] = bars;
-      }
+      const warmupDays = Math.ceil(form.maPeriod / 24) + 5;
+      const range = rangeForStartDate(startDate, { warmupDays });
+      const { bars } = await fetchMarketBarsCached({
+        apiPrefix,
+        cacheRef: barsCacheRef,
+        symbol,
+        timeframe: form.timeframe,
+        range,
+      });
 
       if (bars.length < form.maPeriod + 5)
         throw new Error("Not enough market data for the selected MA period.");
@@ -147,7 +151,7 @@ export default function CryptoTrailingGridBacktestPage({ apiPrefix }: { apiPrefi
 
   // Build horizontal segments for each epoch's grid levels
   const horizontalSegments = useMemo<BacktestChartHorizontalSegment[]>(() => {
-    if (!result || result.rebalanceEvents.length === 0) return [];
+    if (!result) return [];
     const segs: BacktestChartHorizontalSegment[] = [];
     result.rebalanceEvents.forEach((event, i) => {
       const endT =
@@ -164,7 +168,31 @@ export default function CryptoTrailingGridBacktestPage({ apiPrefix }: { apiPrefi
         });
       });
     });
+    result.orderSegments.forEach((segment) => {
+      segs.push({
+        startDate: segment.startDate,
+        endDate: segment.endDate,
+        price: segment.price,
+        color: segment.kind === "buy" ? "#22c55e" : "#f97316",
+        lineWidth: 2 as const,
+      });
+    });
     return segs;
+  }, [result]);
+
+  const lineOverlays = useMemo<BacktestChartLineOverlay[]>(() => {
+    if (!result || result.movingAveragePoints.length === 0) return [];
+    return [
+      {
+        id: "strategy-sma",
+        color: "#f59e0b",
+        lineWidth: 2,
+        points: result.movingAveragePoints.map((point) => ({
+          time: point.t,
+          value: point.value,
+        })),
+      },
+    ];
   }, [result]);
 
   const { summary } = result ?? {};
@@ -501,7 +529,9 @@ export default function CryptoTrailingGridBacktestPage({ apiPrefix }: { apiPrefi
             ) : null}
 
             <div className="shrink-0 px-4 py-1.5 border-b border-border/50 text-[11px] text-text-secondary">
-              Price chart — gray lines = grid levels per epoch, blue squares = rebalances, green/orange = fills
+              Price chart — yellow = exact strategy SMA, gray = grid template for each rebalance epoch,
+              green = active buy orders, orange = active sell targets, blue squares = rebalances,
+              green/orange arrows = fills
               {form.protectionEnabled ? ", red P = selloff protect, green U = resume" : ""}
             </div>
             <div className="h-60 border-b border-border">
@@ -512,7 +542,7 @@ export default function CryptoTrailingGridBacktestPage({ apiPrefix }: { apiPrefi
                 earningsEvents={[]}
                 eventMarkers={eventMarkers}
                 horizontalSegments={horizontalSegments}
-                movingAverageDays={[form.maPeriod]}
+                lineOverlays={lineOverlays}
               />
             </div>
 
@@ -617,41 +647,6 @@ function defaultForm(): FormState {
     protectionLiquidate: false,
     protectionCooldownBars: 3,
   };
-}
-
-function normalizeCryptoSymbol(value: string): string {
-  return value.trim().toUpperCase().replace(/[-_]/g, "/");
-}
-
-function normalizeIsoDateInput(value: string): string | null {
-  const trimmed = value.trim();
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return null;
-  const ts = Date.parse(`${trimmed}T00:00:00Z`);
-  if (!Number.isFinite(ts)) return null;
-  return trimmed;
-}
-
-function rangeForStartDate(startDate: string, maPeriod: number): string {
-  const startTs = Date.parse(`${startDate}T00:00:00Z`);
-  if (!Number.isFinite(startTs)) return "2y";
-  // Extra warmup for MA
-  const warmupDays = Math.ceil(maPeriod / 24) + 5;
-  const daysBack = (Date.now() - startTs) / 86_400_000;
-  if (daysBack + warmupDays > 5 * 365) return "max";
-  if (daysBack + warmupDays > 2 * 365) return "5y";
-  if (daysBack + warmupDays > 365) return "2y";
-  return "1y";
-}
-
-function todayIsoDate(): string {
-  return new Date().toISOString().slice(0, 10);
-}
-
-function yearsAgoIso(years: number): string {
-  const now = new Date();
-  return new Date(
-    Date.UTC(now.getUTCFullYear() - years, now.getUTCMonth(), now.getUTCDate())
-  ).toISOString().slice(0, 10);
 }
 
 function formatUsd(value: number): string {

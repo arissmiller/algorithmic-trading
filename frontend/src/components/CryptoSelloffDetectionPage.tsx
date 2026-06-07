@@ -10,7 +10,16 @@ import {
 } from "../lib/cryptoSelloffDetectionBacktest";
 import type { Bar, SignalWeight } from "../lib/signals";
 import { apiFetch } from "../lib/apiFetch";
-import { addDaysIso } from "../features/backtesting/dateUtils";
+import type { MarketBarsPayload } from "../features/backtesting/types";
+import { fetchMarketBarsCached } from "../features/backtesting/marketData";
+import { normalizeCryptoSymbol } from "../features/backtesting/symbolUtils";
+import {
+  addDaysIso,
+  addMonthsIso,
+  monthsAgoIso,
+  normalizeIsoDateInput,
+  todayIsoDate,
+} from "../features/backtesting/dateUtils";
 import { rangeForStartDate } from "../features/backtesting/rangeUtils";
 
 type StrategyProfile = {
@@ -65,7 +74,7 @@ export default function CryptoSelloffDetectionPage({ apiPrefix }: { apiPrefix: s
   const [runError, setRunError] = useState<string | null>(null);
   const [runResult, setRunResult] = useState<DetectionRunResult | null>(null);
   const [form, setForm] = useState<FormState>(() => defaultForm());
-  const barsCacheRef = useRef<Record<string, Bar[]>>({});
+  const barsCacheRef = useRef<Record<string, MarketBarsPayload>>({});
 
   useEffect(() => {
     let cancelled = false;
@@ -184,25 +193,13 @@ export default function CryptoSelloffDetectionPage({ apiPrefix }: { apiPrefix: s
         throw new Error("Start date must be at least 3 months before today.");
       }
       const range = rangeForStartDate(customStart);
-      const params = new URLSearchParams({
+      const { bars } = await fetchMarketBarsCached({
+        apiPrefix,
+        cacheRef: barsCacheRef,
         symbol,
         timeframe: form.timeframe,
         range,
       });
-      const cacheKey = `${apiPrefix}::${symbol}::${form.timeframe}::${range}`;
-      let bars = barsCacheRef.current[cacheKey];
-      if (!bars) {
-        const barsResponse = await apiFetch(`${apiPrefix}/bars?${params.toString()}`);
-        const barsBody = (await barsResponse.json().catch(() => ({}))) as {
-          error?: string;
-          bars?: Bar[];
-        };
-        if (!barsResponse.ok) {
-          throw new Error(barsBody.error ?? `HTTP ${barsResponse.status}`);
-        }
-        bars = Array.isArray(barsBody.bars) ? barsBody.bars : [];
-        barsCacheRef.current[cacheKey] = bars;
-      }
 
       const minBars = form.timeframe === "1Day" ? 50 : 80;
       if (bars.length < minBars) {
@@ -487,43 +484,6 @@ function resolveDetectionConfig(
     startThreshold: 0.74,
     endThreshold: 0.56,
   };
-}
-
-function normalizeCryptoSymbol(value: string): string {
-  return value.trim().toUpperCase().replace(/[-_]/g, "/");
-}
-
-function todayIsoDate(): string {
-  return new Date().toISOString().slice(0, 10);
-}
-
-function normalizeIsoDateInput(value: string): string | null {
-  const trimmed = value.trim();
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return null;
-  const ts = Date.parse(`${trimmed}T00:00:00Z`);
-  if (!Number.isFinite(ts)) return null;
-  return trimmed;
-}
-
-function monthsAgoIso(months: number): string {
-  const now = new Date();
-  const dt = new Date(
-    Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - months, now.getUTCDate())
-  );
-  return dt.toISOString().slice(0, 10);
-}
-
-function addMonthsIso(isoDate: string, months: number): string {
-  const [year, month, day] = isoDate.split("-").map((v) => Number(v));
-  const monthIndex = month - 1 + months;
-  const targetYear = year + Math.floor(monthIndex / 12);
-  const targetMonthIndex = ((monthIndex % 12) + 12) % 12;
-  const lastDayOfTargetMonth = new Date(
-    Date.UTC(targetYear, targetMonthIndex + 1, 0)
-  ).getUTCDate();
-  const clampedDay = Math.min(day, lastDayOfTargetMonth);
-  const dt = new Date(Date.UTC(targetYear, targetMonthIndex, clampedDay));
-  return dt.toISOString().slice(0, 10);
 }
 
 function formatUsd(value: number): string {

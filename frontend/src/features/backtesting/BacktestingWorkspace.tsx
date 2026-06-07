@@ -13,7 +13,7 @@ export default function BacktestingWorkspace({
   defaultSymbol: string;
   symbolMode: "stocks" | "crypto";
 }) {
-  const { runs, setRuns, runQueueResults, running, runError, handleRunAll } =
+  const { runs, setRuns, runQueueResults, running, handleRunAll } =
     useBacktestingWorkspace(benchmarkSymbol);
 
   return (
@@ -33,11 +33,6 @@ export default function BacktestingWorkspace({
         <div className="shrink-0 border-b border-border/70 px-4 py-2 text-[12px] font-semibold uppercase tracking-widest text-text-secondary">
           {title}
         </div>
-        {runError ? (
-          <div className="shrink-0 border-b border-sell/20 bg-sell/10 px-4 py-2 text-xs text-sell">
-            {runError}
-          </div>
-        ) : null}
         {running ? (
           <div className="shrink-0 border-b border-border/40 px-4 py-2 text-xs text-text-secondary">
             Running backtests…

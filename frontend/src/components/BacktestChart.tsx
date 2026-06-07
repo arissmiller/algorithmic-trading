@@ -31,6 +31,13 @@ export type BacktestChartHorizontalSegment = {
   lineWidth?: 1 | 2 | 3 | 4;
 };
 
+export type BacktestChartLineOverlay = {
+  id: string;
+  color?: string;
+  lineWidth?: 1 | 2 | 3 | 4;
+  points: Array<{ time: string; value: number }>;
+};
+
 interface Props {
   bars: Bar[];
   scaleInTrades: BacktestTrade[];
@@ -39,6 +46,7 @@ interface Props {
   eventMarkers?: BacktestChartEventMarker[];
   horizontalSegments?: BacktestChartHorizontalSegment[];
   movingAverageDays?: number[];
+  lineOverlays?: BacktestChartLineOverlay[];
 }
 
 const toTime = (t: string) => Math.floor(new Date(t).getTime() / 1000) as Time;
@@ -52,18 +60,27 @@ export default function BacktestChart({
   eventMarkers = [],
   horizontalSegments = [],
   movingAverageDays = [],
+  lineOverlays = [],
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
   const markersRef = useRef<ISeriesMarkersPluginApi<Time> | null>(null);
   const movingAverageSeriesRef = useRef<Array<{ days: number; series: ISeriesApi<"Line"> }>>([]);
+  const lineOverlaySeriesRef = useRef<Array<{ id: string; series: ISeriesApi<"Line"> }>>([]);
   const horizontalSegmentSeriesRef = useRef<ISeriesApi<"Line">[]>([]);
   const normalizedMovingAverageDays = useMemo(
     () => normalizeMovingAverageDays(movingAverageDays),
     [movingAverageDays]
   );
   const movingAverageDaysKey = normalizedMovingAverageDays.join(",");
+  const lineOverlaysKey = useMemo(
+    () =>
+      lineOverlays
+        .map((overlay) => `${overlay.id}:${overlay.points.length}:${overlay.color ?? ""}:${overlay.lineWidth ?? 2}`)
+        .join("|"),
+    [lineOverlays]
+  );
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -109,6 +126,7 @@ export default function BacktestChart({
       seriesRef.current = null;
       markersRef.current = null;
       movingAverageSeriesRef.current = [];
+      lineOverlaySeriesRef.current = [];
       horizontalSegmentSeriesRef.current = [];
     };
   }, []);
@@ -132,6 +150,25 @@ export default function BacktestChart({
     }));
   }, [movingAverageDaysKey]);
 
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) return;
+
+    for (const line of lineOverlaySeriesRef.current) {
+      chart.removeSeries(line.series);
+    }
+    lineOverlaySeriesRef.current = lineOverlays.map((overlay) => ({
+      id: overlay.id,
+      series: chart.addSeries(LineSeries, {
+        color: overlay.color ?? "#f59e0b",
+        lineWidth: overlay.lineWidth ?? 2,
+        priceLineVisible: false,
+        lastValueVisible: false,
+        crosshairMarkerVisible: false,
+      }),
+    }));
+  }, [lineOverlaysKey, lineOverlays]);
+
   // Load bars
   useEffect(() => {
     if (!seriesRef.current || bars.length === 0) return;
@@ -145,8 +182,18 @@ export default function BacktestChart({
         line.series.setData(buildExponentialMovingAverageData(bars, periodBars));
       }
     }
+    if (lineOverlaySeriesRef.current.length > 0) {
+      for (const overlaySeries of lineOverlaySeriesRef.current) {
+        const overlay = lineOverlays.find((entry) => entry.id === overlaySeries.id);
+        overlaySeries.series.setData(
+          (overlay?.points ?? [])
+            .filter((point) => Number.isFinite(point.value))
+            .map((point) => ({ time: toTime(point.time), value: point.value }))
+        );
+      }
+    }
     chartRef.current?.timeScale().fitContent();
-  }, [bars, movingAverageDaysKey]);
+  }, [bars, movingAverageDaysKey, lineOverlays, lineOverlaysKey]);
 
   // Update horizontal overlay segments
   useEffect(() => {

@@ -9,8 +9,15 @@ import {
   GridBacktestResult,
   GridBacktestTrade,
 } from "../lib/cryptoGridBacktest";
-import type { Bar } from "../lib/signals";
-import { apiFetch } from "../lib/apiFetch";
+import type { MarketBarsPayload } from "../features/backtesting/types";
+import { fetchMarketBarsCached } from "../features/backtesting/marketData";
+import { normalizeCryptoSymbol } from "../features/backtesting/symbolUtils";
+import {
+  normalizeIsoDateInput,
+  todayIsoDate,
+  yearsAgoIso,
+} from "../features/backtesting/dateUtils";
+import { rangeForStartDate } from "../features/backtesting/rangeUtils";
 
 type RangeMode = "auto" | "manual";
 
@@ -40,7 +47,7 @@ export default function CryptoGridBacktestPage({ apiPrefix }: { apiPrefix: strin
   const [running, setRunning] = useState(false);
   const [runError, setRunError] = useState<string | null>(null);
   const [result, setResult] = useState<GridBacktestResult | null>(null);
-  const barsCacheRef = useRef<Record<string, Bar[]>>({});
+  const barsCacheRef = useRef<Record<string, MarketBarsPayload>>({});
 
   function setField<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -62,18 +69,13 @@ export default function CryptoGridBacktestPage({ apiPrefix }: { apiPrefix: strin
       if (form.totalCapital <= 0) throw new Error("Total capital must be positive.");
 
       const range = rangeForStartDate(startDate);
-      const params = new URLSearchParams({ symbol, range });
-      if (form.timeframe !== "1Day") params.set("timeframe", form.timeframe);
-
-      const cacheKey = `${apiPrefix}::${symbol}::${form.timeframe}::${range}`;
-      let bars = barsCacheRef.current[cacheKey];
-      if (!bars) {
-        const res = await apiFetch(`${apiPrefix}/bars?${params.toString()}`);
-        const body = (await res.json().catch(() => ({}))) as { error?: string; bars?: Bar[] };
-        if (!res.ok) throw new Error(body.error ?? `HTTP ${res.status}`);
-        bars = Array.isArray(body.bars) ? body.bars : [];
-        barsCacheRef.current[cacheKey] = bars;
-      }
+      const { bars } = await fetchMarketBarsCached({
+        apiPrefix,
+        cacheRef: barsCacheRef,
+        symbol,
+        timeframe: form.timeframe,
+        range,
+      });
 
       if (bars.length < 10) throw new Error("Not enough market data for this symbol/timeframe.");
 
@@ -537,39 +539,6 @@ function defaultForm(): FormState {
     feeBps: 10,
     slippageBps: 5,
   };
-}
-
-function normalizeCryptoSymbol(value: string): string {
-  return value.trim().toUpperCase().replace(/[-_]/g, "/");
-}
-
-function normalizeIsoDateInput(value: string): string | null {
-  const trimmed = value.trim();
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return null;
-  const ts = Date.parse(`${trimmed}T00:00:00Z`);
-  if (!Number.isFinite(ts)) return null;
-  return trimmed;
-}
-
-function rangeForStartDate(startDate: string): string {
-  const startTs = Date.parse(`${startDate}T00:00:00Z`);
-  if (!Number.isFinite(startTs)) return "2y";
-  const daysBack = (Date.now() - startTs) / 86_400_000;
-  if (daysBack > 5 * 365 - 10) return "max";
-  if (daysBack > 2 * 365 - 10) return "5y";
-  if (daysBack > 365 - 10) return "2y";
-  return "1y";
-}
-
-function todayIsoDate(): string {
-  return new Date().toISOString().slice(0, 10);
-}
-
-function yearsAgoIso(years: number): string {
-  const now = new Date();
-  return new Date(
-    Date.UTC(now.getUTCFullYear() - years, now.getUTCMonth(), now.getUTCDate())
-  ).toISOString().slice(0, 10);
 }
 
 function formatUsd(value: number): string {
