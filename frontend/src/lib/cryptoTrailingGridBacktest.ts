@@ -33,6 +33,9 @@ export interface CryptoTrailingGridBacktestConfig {
   startDate: string;
   endDate: string;
   maPeriod: number;
+  centerMode?: "sma" | "linearRegression";
+  regressionResetSigmaThreshold?: number;
+  regressionMaxResidualPct?: number;
   rebalanceThresholdPct: number;
   halfRangePct: number;
   gridCount: number;
@@ -96,6 +99,7 @@ export interface TrailingGridSummary {
   avgPnLPerCycle: number;
   rebalanceCount: number;
   protectionEventsCount: number;
+  regimeResetCount: number;
   maxDrawdownPct: number;
   buyAndHoldReturn: number;
   buyAndHoldReturnPct: number;
@@ -147,6 +151,75 @@ function buildSMA(bars: Bar[], period: number): (number | null)[] {
   return result;
 }
 
+function buildRollingLinearRegression(bars: Bar[], period: number): (number | null)[] {
+  const result: (number | null)[] = new Array(bars.length).fill(null);
+  if (period < 2 || period > bars.length) return result;
+
+  const n = period;
+  const sumX = (n * (n - 1)) / 2;
+  const sumX2 = (n * (n - 1) * (2 * n - 1)) / 6;
+  const denominator = n * sumX2 - sumX * sumX;
+  if (denominator === 0) return result;
+
+  for (let end = period - 1; end < bars.length; end++) {
+    const start = end - period + 1;
+    let sumY = 0;
+    let sumXY = 0;
+    for (let i = 0; i < period; i++) {
+      const close = bars[start + i].c;
+      sumY += close;
+      sumXY += i * close;
+    }
+    const slope = (n * sumXY - sumX * sumY) / denominator;
+    const intercept = (sumY - slope * sumX) / n;
+    result[end] = intercept + slope * (period - 1);
+  }
+
+  return result;
+}
+
+type RegressionSnapshot = {
+  fittedValue: number;
+  residualStdDev: number;
+};
+
+function computeLinearRegressionSnapshot(
+  bars: Bar[],
+  startIndex: number,
+  endIndex: number
+): RegressionSnapshot | null {
+  const period = endIndex - startIndex + 1;
+  if (period < 2) return null;
+
+  const n = period;
+  const sumX = (n * (n - 1)) / 2;
+  const sumX2 = (n * (n - 1) * (2 * n - 1)) / 6;
+  const denominator = n * sumX2 - sumX * sumX;
+  if (denominator === 0) return null;
+
+  let sumY = 0;
+  let sumXY = 0;
+  for (let i = 0; i < period; i++) {
+    const close = bars[startIndex + i].c;
+    sumY += close;
+    sumXY += i * close;
+  }
+
+  const slope = (n * sumXY - sumX * sumY) / denominator;
+  const intercept = (sumY - slope * sumX) / n;
+  let residualSquaredSum = 0;
+  for (let i = 0; i < period; i++) {
+    const fitted = intercept + slope * i;
+    const residual = bars[startIndex + i].c - fitted;
+    residualSquaredSum += residual * residual;
+  }
+
+  return {
+    fittedValue: intercept + slope * (period - 1),
+    residualStdDev: Math.sqrt(residualSquaredSum / period),
+  };
+}
+
 function withFriction(price: number, side: "buy" | "sell", totalBps: number): number {
   const impact = totalBps / 10_000;
   return side === "buy" ? price * (1 + impact) : price * (1 - impact);
@@ -173,6 +246,7 @@ function emptyResult(
       avgPnLPerCycle: 0,
       rebalanceCount: 0,
       protectionEventsCount: 0,
+      regimeResetCount: 0,
       maxDrawdownPct: 0,
       buyAndHoldReturn: 0,
       buyAndHoldReturnPct: 0,
@@ -212,6 +286,9 @@ export function runCryptoTrailingGridBacktest(
     startDate,
     endDate,
     maPeriod,
+    centerMode = "sma",
+    regressionResetSigmaThreshold = 3,
+    regressionMaxResidualPct = 8,
     rebalanceThresholdPct,
     halfRangePct,
     gridCount,
@@ -256,12 +333,49 @@ export function runCryptoTrailingGridBacktest(
     protectionEvents = detectionResult.events;
   }
 
-  // --- SMA series ---
-  const smaFull = buildSMA(bars, maPeriod);
-  const smaByTime = new Map<string, number | null>();
-  for (let i = 0; i < bars.length; i++) smaByTime.set(bars[i].t, smaFull[i]);
+  // --- Center line series ---
+  const centerSeries =
+    centerMode === "linearRegression"
+      ? new Array<number | null>(bars.length).fill(null)
+      : buildSMA(bars, maPeriod);
+  let regimeResetCount = 0;
+  if (centerMode === "linearRegression") {
+    let regimeStartIndex = 0;
+    for (let i = 0; i < bars.length; i++) {
+      const windowStartIndex = Math.max(regimeStartIndex, i - maPeriod + 1);
+      const snapshot = computeLinearRegressionSnapshot(bars, windowStartIndex, i);
+      if (!snapshot) {
+        centerSeries[i] = bars[i].c;
+        continue;
+      }
+
+      const residualPct =
+        snapshot.fittedValue !== 0
+          ? (snapshot.residualStdDev / Math.abs(snapshot.fittedValue)) * 100
+          : 0;
+      const sigmaDistance =
+        snapshot.residualStdDev > 0
+          ? Math.abs(bars[i].c - snapshot.fittedValue) / snapshot.residualStdDev
+          : 0;
+      const shouldReset =
+        i > regimeStartIndex &&
+        (sigmaDistance > regressionResetSigmaThreshold ||
+          residualPct > regressionMaxResidualPct);
+
+      if (shouldReset) {
+        regimeResetCount++;
+        regimeStartIndex = i;
+        centerSeries[i] = bars[i].c;
+        continue;
+      }
+
+      centerSeries[i] = snapshot.fittedValue;
+    }
+  }
+  const centerByTime = new Map<string, number | null>();
+  for (let i = 0; i < bars.length; i++) centerByTime.set(bars[i].t, centerSeries[i]);
   const movingAveragePoints: TrailingGridMovingAveragePoint[] = allBarsInRange.flatMap((bar) => {
-    const value = smaByTime.get(bar.t) ?? null;
+    const value = centerByTime.get(bar.t) ?? null;
     return value === null ? [] : [{ t: bar.t, value }];
   });
 
@@ -310,10 +424,10 @@ export function runCryptoTrailingGridBacktest(
     pendingSells.clear();
   }
 
-  function rebalance(bar: Bar, maValue: number): void {
-    const levels = buildGridLevels(maValue, halfRangePct, gridCount, spacing);
-    gridCenter = maValue;
-    rebalanceEvents.push({ t: bar.t, maValue, newLevels: levels });
+  function rebalance(bar: Bar, centerValue: number): void {
+    const levels = buildGridLevels(centerValue, halfRangePct, gridCount, spacing);
+    gridCenter = centerValue;
+    rebalanceEvents.push({ t: bar.t, maValue: centerValue, newLevels: levels });
     closePendingBuySegments(bar.t);
     for (let i = 0; i < gridCount; i++) {
       const buyPrice = levels[i];
@@ -325,7 +439,7 @@ export function runCryptoTrailingGridBacktest(
   }
 
   for (const bar of allBarsInRange) {
-    const maValue = smaByTime.get(bar.t) ?? null;
+    const maValue = centerByTime.get(bar.t) ?? null;
     const inSelloff = selloffActiveMap?.get(bar.t) ?? false;
     const currentEpoch = rebalanceEvents.length - 1;
 
@@ -535,6 +649,7 @@ export function runCryptoTrailingGridBacktest(
       avgPnLPerCycle: gridCyclesCompleted > 0 ? realizedPnL / gridCyclesCompleted : 0,
       rebalanceCount: rebalanceEvents.length,
       protectionEventsCount,
+      regimeResetCount,
       maxDrawdownPct,
       buyAndHoldReturn,
       buyAndHoldReturnPct: totalCapital > 0 ? (buyAndHoldReturn / totalCapital) * 100 : 0,

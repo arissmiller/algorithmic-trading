@@ -5,6 +5,7 @@ export const APP_PATHS = {
   cryptoSelloffDetection: "/crypto/selloff-detection",
   cryptoGridBacktest: "/crypto/grid",
   cryptoTrailingGridBacktest: "/crypto/trailing-grid",
+  cryptoLinearRegressionTrailingGridBacktest: "/crypto/trailing-grid-linear-regression",
   advancedIndustrialsLive: "/portfolios/advanced-industrials/live",
   advancedIndustrialsBacktest: "/portfolios/advanced-industrials/backtest",
   enterpriseSoftwareLive: "/portfolios/enterprise-software/live",
@@ -23,6 +24,10 @@ export const APP_NAV_GROUPS = [
       { path: APP_PATHS.cryptoSelloffDetection, label: "Crypto Selloff Detection" },
       { path: APP_PATHS.cryptoGridBacktest, label: "Fixed Grid Backtest" },
       { path: APP_PATHS.cryptoTrailingGridBacktest, label: "Trailing Grid Backtest" },
+      {
+        path: APP_PATHS.cryptoLinearRegressionTrailingGridBacktest,
+        label: "Linear Regression Trailing Grid Backtest",
+      },
     ],
   },
   {

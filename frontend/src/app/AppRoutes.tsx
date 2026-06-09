@@ -9,6 +9,9 @@ const BacktestingWorkspace = lazy(() => import("../features/backtesting/Backtest
 const CryptoSelloffDetectionPage = lazy(() => import("../components/CryptoSelloffDetectionPage"));
 const CryptoGridBacktestPage = lazy(() => import("../components/CryptoGridBacktestPage"));
 const CryptoTrailingGridBacktestPage = lazy(() => import("../components/CryptoTrailingGridBacktestPage"));
+const CryptoLinearRegressionTrailingGridBacktestPage = lazy(
+  () => import("../components/CryptoLinearRegressionTrailingGridBacktestPage")
+);
 const PortfolioVsSp500Page = lazy(() => import("../components/PortfolioVsSp500Page"));
 const LivePortfolioPage = lazy(() => import("../components/LivePortfolioPage"));
 const LivePortfolioBacktestPage = lazy(() => import("../components/LivePortfolioBacktestPage"));
@@ -62,6 +65,12 @@ export default function AppRoutes() {
         <Route
           path={APP_PATHS.cryptoTrailingGridBacktest}
           element={withSuspense(<CryptoTrailingGridBacktestPage apiPrefix={API_PREFIX} />)}
+        />
+        <Route
+          path={APP_PATHS.cryptoLinearRegressionTrailingGridBacktest}
+          element={withSuspense(
+            <CryptoLinearRegressionTrailingGridBacktestPage apiPrefix={API_PREFIX} />
+          )}
         />
         <Route
           path={APP_PATHS.advancedIndustrialsLive}
