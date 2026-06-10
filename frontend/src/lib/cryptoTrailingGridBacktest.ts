@@ -21,10 +21,10 @@ const DEFAULT_PROTECTION_SIGNALS: SignalWeight[] = [
 export interface SelloffProtectionConfig {
   enabled: boolean;
   signals?: SignalWeight[];
-  selloffStartThreshold: number;  // e.g. 0.74
-  selloffEndThreshold: number;    // e.g. 0.56
-  liquidateOnSelloff: boolean;    // close all open positions on selloff start
-  cooldownBarsAfterEnd: number;   // bars to wait before re-arming buys after selloff ends
+  selloffStartThreshold: number;
+  selloffEndThreshold: number;
+  liquidateOnSelloff: boolean;
+  cooldownBarsAfterEnd: number;
 }
 
 export interface CryptoTrailingGridBacktestConfig {
@@ -119,6 +119,11 @@ export interface TrailingGridBacktestResult {
   barsUsed: Bar[];
 }
 
+type RegressionSnapshot = {
+  fittedValue: number;
+  residualStdDev: number;
+};
+
 function buildGridLevels(
   center: number,
   halfRangePct: number,
@@ -150,38 +155,6 @@ function buildSMA(bars: Bar[], period: number): (number | null)[] {
   }
   return result;
 }
-
-function buildRollingLinearRegression(bars: Bar[], period: number): (number | null)[] {
-  const result: (number | null)[] = new Array(bars.length).fill(null);
-  if (period < 2 || period > bars.length) return result;
-
-  const n = period;
-  const sumX = (n * (n - 1)) / 2;
-  const sumX2 = (n * (n - 1) * (2 * n - 1)) / 6;
-  const denominator = n * sumX2 - sumX * sumX;
-  if (denominator === 0) return result;
-
-  for (let end = period - 1; end < bars.length; end++) {
-    const start = end - period + 1;
-    let sumY = 0;
-    let sumXY = 0;
-    for (let i = 0; i < period; i++) {
-      const close = bars[start + i].c;
-      sumY += close;
-      sumXY += i * close;
-    }
-    const slope = (n * sumXY - sumX * sumY) / denominator;
-    const intercept = (sumY - slope * sumX) / n;
-    result[end] = intercept + slope * (period - 1);
-  }
-
-  return result;
-}
-
-type RegressionSnapshot = {
-  fittedValue: number;
-  residualStdDev: number;
-};
 
 function computeLinearRegressionSnapshot(
   bars: Bar[],
@@ -309,14 +282,13 @@ export function runCryptoTrailingGridBacktest(
   const allBarsInRange = selectBarsInWindow(bars, startDate, endDate);
   if (allBarsInRange.length === 0) return emptyResult(symbol, startDate, endDate, totalCapital);
 
-  // --- Selloff protection pre-pass ---
   let selloffActiveMap: Map<string, boolean> | null = null;
   let protectionEvents: SelloffDetectionEvent[] = [];
 
   if (selloffProtection?.enabled) {
     const detectionResult = runCryptoSelloffDetectionBacktest({
       symbol,
-      bars, // full array for signal warmup
+      bars,
       startDate,
       endDate,
       signals: selloffProtection.signals ?? DEFAULT_PROTECTION_SIGNALS,
@@ -333,7 +305,6 @@ export function runCryptoTrailingGridBacktest(
     protectionEvents = detectionResult.events;
   }
 
-  // --- Center line series ---
   const centerSeries =
     centerMode === "linearRegression"
       ? new Array<number | null>(bars.length).fill(null)
@@ -443,7 +414,6 @@ export function runCryptoTrailingGridBacktest(
     const inSelloff = selloffActiveMap?.get(bar.t) ?? false;
     const currentEpoch = rebalanceEvents.length - 1;
 
-    // --- Selloff transition: start ---
     if (inSelloff && !wasInSelloff) {
       closePendingBuySegments(bar.t);
 
@@ -473,12 +443,10 @@ export function runCryptoTrailingGridBacktest(
       }
     }
 
-    // --- Selloff transition: end ---
     if (!inSelloff && wasInSelloff) {
       cooldownBarsRemaining = selloffProtection?.cooldownBarsAfterEnd ?? 0;
     }
 
-    // --- Rebalancing (skipped during selloff and cooldown) ---
     if (!inSelloff && cooldownBarsRemaining <= 0 && maValue !== null) {
       if (gridCenter === null) {
         rebalance(bar, maValue);
@@ -490,10 +458,8 @@ export function runCryptoTrailingGridBacktest(
       }
     }
 
-    // Decrement cooldown after possibly triggering rebalance above
     if (cooldownBarsRemaining > 0) {
       cooldownBarsRemaining--;
-      // Rebalance on the bar that ends the cooldown
       if (cooldownBarsRemaining === 0 && maValue !== null) {
         rebalance(bar, maValue);
       }
@@ -581,20 +547,22 @@ export function runCryptoTrailingGridBacktest(
     const bullish = bar.c >= bar.o;
 
     if (bullish) {
-      // Buys only fire when protection is not active
       if (!inSelloff && cooldownBarsRemaining <= 0) {
-        for (const [buyPrice, pendingBuy] of Array.from(pendingBuys.entries()))
+        for (const [buyPrice, pendingBuy] of Array.from(pendingBuys.entries())) {
           tryBuy(buyPrice, pendingBuy);
+        }
       }
-      // Sells always fire — let existing positions exit on recovery
-      for (const [sellPrice, pos] of Array.from(pendingSells.entries()))
+      for (const [sellPrice, pos] of Array.from(pendingSells.entries())) {
         trySell(sellPrice, pos);
+      }
     } else {
-      for (const [sellPrice, pos] of Array.from(pendingSells.entries()))
+      for (const [sellPrice, pos] of Array.from(pendingSells.entries())) {
         trySell(sellPrice, pos);
+      }
       if (!inSelloff && cooldownBarsRemaining <= 0) {
-        for (const [buyPrice, pendingBuy] of Array.from(pendingBuys.entries()))
+        for (const [buyPrice, pendingBuy] of Array.from(pendingBuys.entries())) {
           tryBuy(buyPrice, pendingBuy);
+        }
       }
     }
 

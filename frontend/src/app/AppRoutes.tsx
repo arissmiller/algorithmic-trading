@@ -6,6 +6,7 @@ import { APP_PATHS } from "./navigation";
 import RouteFallback from "./RouteFallback";
 
 const BacktestingWorkspace = lazy(() => import("../features/backtesting/BacktestingWorkspace"));
+const CryptoBreakoutDetectionPage = lazy(() => import("../components/CryptoBreakoutDetectionPage"));
 const CryptoSelloffDetectionPage = lazy(() => import("../components/CryptoSelloffDetectionPage"));
 const CryptoGridBacktestPage = lazy(() => import("../components/CryptoGridBacktestPage"));
 const CryptoTrailingGridBacktestPage = lazy(() => import("../components/CryptoTrailingGridBacktestPage"));
@@ -53,6 +54,10 @@ export default function AppRoutes() {
               symbolMode="crypto"
             />
           )}
+        />
+        <Route
+          path={APP_PATHS.cryptoBreakoutDetection}
+          element={withSuspense(<CryptoBreakoutDetectionPage apiPrefix={API_PREFIX} />)}
         />
         <Route
           path={APP_PATHS.cryptoSelloffDetection}

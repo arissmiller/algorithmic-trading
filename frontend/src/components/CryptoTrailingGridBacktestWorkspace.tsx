@@ -45,6 +45,16 @@ type FormState = {
   protectionCooldownBars: number;
 };
 
+type ChartVisibilityState = {
+  centerLine: boolean;
+  gridTemplate: boolean;
+  buyOrders: boolean;
+  sellTargets: boolean;
+  tradeFills: boolean;
+  rebalances: boolean;
+  protectionMarkers: boolean;
+};
+
 type Props = {
   apiPrefix: string;
   strategyVariant?: StrategyVariant;
@@ -62,10 +72,20 @@ export default function CryptoTrailingGridBacktestWorkspace({
   const [running, setRunning] = useState(false);
   const [runError, setRunError] = useState<string | null>(null);
   const [result, setResult] = useState<TrailingGridBacktestResult | null>(null);
+  const [chartVisibility, setChartVisibility] = useState<ChartVisibilityState>(() =>
+    defaultChartVisibility()
+  );
   const barsCacheRef = useRef<Record<string, MarketBarsPayload>>({});
 
   function setField<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((prev) => ({ ...prev, [key]: value }));
+  }
+
+  function setChartVisibilityField<K extends keyof ChartVisibilityState>(
+    key: K,
+    value: ChartVisibilityState[K]
+  ) {
+    setChartVisibility((prev) => ({ ...prev, [key]: value }));
   }
 
   async function runBacktest() {
@@ -88,7 +108,6 @@ export default function CryptoTrailingGridBacktestWorkspace({
         throw new Error("Reset sigma must be positive.");
       if (isRegression && form.regressionMaxResidualPct <= 0)
         throw new Error("Max residual % must be positive.");
-
       const warmupDays = Math.ceil(form.maPeriod / 24) + 5;
       const range = rangeForStartDate(startDate, { warmupDays });
       const { bars } = await fetchMarketBarsCached({
@@ -148,52 +167,62 @@ export default function CryptoTrailingGridBacktestWorkspace({
 
   const eventMarkers = useMemo<BacktestChartEventMarker[]>(() => {
     if (!result) return [];
-    const tradeMarkers: BacktestChartEventMarker[] = result.trades.map((trade) => ({
-      date: trade.t,
-      position: trade.side === "buy" ? ("belowBar" as const) : ("aboveBar" as const),
-      shape: trade.side === "buy" ? ("arrowUp" as const) : ("arrowDown" as const),
-      color: trade.side === "buy" ? "#22c55e" : "#f97316",
-      size: 1,
-      text: trade.side === "buy" ? "B" : "S",
-    }));
-    const rebalanceMarkers: BacktestChartEventMarker[] = result.rebalanceEvents.map((ev) => ({
-      date: ev.t,
-      position: "inBar" as const,
-      shape: "square" as const,
-      color: "#60a5fa",
-      size: 0.8,
-      text: "R",
-    }));
-    const protectionMarkers: BacktestChartEventMarker[] = result.protectionEvents.map((ev) => ({
-      date: ev.date,
-      position: ev.type === "selloff_started" ? ("aboveBar" as const) : ("belowBar" as const),
-      shape: ev.type === "selloff_started" ? ("arrowDown" as const) : ("arrowUp" as const),
-      color: ev.type === "selloff_started" ? "#ef4444" : "#a3e635",
-      size: 1.2,
-      text: ev.type === "selloff_started" ? "P" : "U",
-    }));
+    const tradeMarkers: BacktestChartEventMarker[] = chartVisibility.tradeFills
+      ? result.trades.map((trade) => ({
+          date: trade.t,
+          position: trade.side === "buy" ? ("belowBar" as const) : ("aboveBar" as const),
+          shape: trade.side === "buy" ? ("arrowUp" as const) : ("arrowDown" as const),
+          color: trade.side === "buy" ? "#22c55e" : "#f97316",
+          size: 1,
+          text: trade.side === "buy" ? "B" : "S",
+        }))
+      : [];
+    const rebalanceMarkers: BacktestChartEventMarker[] = chartVisibility.rebalances
+      ? result.rebalanceEvents.map((ev) => ({
+          date: ev.t,
+          position: "inBar" as const,
+          shape: "square" as const,
+          color: "#60a5fa",
+          size: 0.8,
+          text: "R",
+        }))
+      : [];
+    const protectionMarkers: BacktestChartEventMarker[] = chartVisibility.protectionMarkers
+      ? result.protectionEvents.map((ev) => ({
+          date: ev.date,
+          position: ev.type === "selloff_started" ? ("aboveBar" as const) : ("belowBar" as const),
+          shape: ev.type === "selloff_started" ? ("arrowDown" as const) : ("arrowUp" as const),
+          color: ev.type === "selloff_started" ? "#ef4444" : "#a3e635",
+          size: 1.2,
+          text: ev.type === "selloff_started" ? "P" : "U",
+        }))
+      : [];
     return [...tradeMarkers, ...rebalanceMarkers, ...protectionMarkers];
-  }, [result]);
+  }, [chartVisibility, result]);
 
   const horizontalSegments = useMemo<BacktestChartHorizontalSegment[]>(() => {
     if (!result) return [];
     const segs: BacktestChartHorizontalSegment[] = [];
-    result.rebalanceEvents.forEach((event, i) => {
-      const endT =
-        result.rebalanceEvents[i + 1]?.t ??
-        result.barsUsed[result.barsUsed.length - 1]?.t ??
-        result.endDate;
-      event.newLevels.forEach((price) => {
-        segs.push({
-          startDate: event.t,
-          endDate: endT,
-          price,
-          color: "#64748b",
-          lineWidth: 1 as const,
+    if (chartVisibility.gridTemplate) {
+      result.rebalanceEvents.forEach((event, i) => {
+        const endT =
+          result.rebalanceEvents[i + 1]?.t ??
+          result.barsUsed[result.barsUsed.length - 1]?.t ??
+          result.endDate;
+        event.newLevels.forEach((price) => {
+          segs.push({
+            startDate: event.t,
+            endDate: endT,
+            price,
+            color: "#64748b",
+            lineWidth: 1 as const,
+          });
         });
       });
-    });
+    }
     result.orderSegments.forEach((segment) => {
+      if (segment.kind === "buy" && !chartVisibility.buyOrders) return;
+      if (segment.kind === "sell" && !chartVisibility.sellTargets) return;
       segs.push({
         startDate: segment.startDate,
         endDate: segment.endDate,
@@ -203,10 +232,12 @@ export default function CryptoTrailingGridBacktestWorkspace({
       });
     });
     return segs;
-  }, [result]);
+  }, [chartVisibility, result]);
 
   const lineOverlays = useMemo<BacktestChartLineOverlay[]>(() => {
-    if (!result || result.movingAveragePoints.length === 0) return [];
+    if (!result || !chartVisibility.centerLine || result.movingAveragePoints.length === 0) {
+      return [];
+    }
     return [
       {
         id: isRegression ? "strategy-regression" : "strategy-sma",
@@ -218,7 +249,7 @@ export default function CryptoTrailingGridBacktestWorkspace({
         })),
       },
     ];
-  }, [isRegression, result]);
+  }, [chartVisibility.centerLine, isRegression, result]);
 
   const { summary } = result ?? {};
   const title = isRegression ? "Linear Regression Trailing Grid Backtest" : "Trailing Grid Backtest";
@@ -396,7 +427,6 @@ export default function CryptoTrailingGridBacktestWorkspace({
               </select>
             </Field>
           </div>
-
         </div>
 
         <div className="border-t border-border pt-3 space-y-3">
@@ -610,6 +640,49 @@ export default function CryptoTrailingGridBacktestWorkspace({
               </div>
             ) : null}
 
+            <div className="shrink-0 px-4 py-2 border-b border-border/50 bg-surface-1">
+              <p className="text-[11px] uppercase tracking-widest text-text-secondary font-semibold">
+                Chart Indicators
+              </p>
+              <div className="mt-2 grid grid-cols-2 md:grid-cols-4 gap-2 text-[11px] text-text-secondary">
+                <TogglePill
+                  label={isRegression ? "Regression Line" : "SMA Line"}
+                  checked={chartVisibility.centerLine}
+                  onChange={(checked) => setChartVisibilityField("centerLine", checked)}
+                />
+                <TogglePill
+                  label="Grid Template"
+                  checked={chartVisibility.gridTemplate}
+                  onChange={(checked) => setChartVisibilityField("gridTemplate", checked)}
+                />
+                <TogglePill
+                  label="Buy Orders"
+                  checked={chartVisibility.buyOrders}
+                  onChange={(checked) => setChartVisibilityField("buyOrders", checked)}
+                />
+                <TogglePill
+                  label="Sell Targets"
+                  checked={chartVisibility.sellTargets}
+                  onChange={(checked) => setChartVisibilityField("sellTargets", checked)}
+                />
+                <TogglePill
+                  label="Trade Fills"
+                  checked={chartVisibility.tradeFills}
+                  onChange={(checked) => setChartVisibilityField("tradeFills", checked)}
+                />
+                <TogglePill
+                  label="Rebalances"
+                  checked={chartVisibility.rebalances}
+                  onChange={(checked) => setChartVisibilityField("rebalances", checked)}
+                />
+                <TogglePill
+                  label="Protection"
+                  checked={chartVisibility.protectionMarkers}
+                  onChange={(checked) => setChartVisibilityField("protectionMarkers", checked)}
+                />
+              </div>
+            </div>
+
             <div className="shrink-0 px-4 py-1.5 border-b border-border/50 text-[11px] text-text-secondary">
               Price chart - yellow = {chartCenterLabel}, gray = grid template for each rebalance
               epoch, green = active buy orders, orange = active sell targets, blue squares = rebalances, green/orange arrows = fills
@@ -730,6 +803,18 @@ function defaultForm(): FormState {
   };
 }
 
+function defaultChartVisibility(): ChartVisibilityState {
+  return {
+    centerLine: true,
+    gridTemplate: true,
+    buyOrders: true,
+    sellTargets: true,
+    tradeFills: true,
+    rebalances: true,
+    protectionMarkers: true,
+  };
+}
+
 function formatUsd(value: number): string {
   return value.toLocaleString(undefined, {
     style: "currency",
@@ -778,5 +863,27 @@ function StatCard({
       <p className={`text-sm font-semibold tabular-nums ${valueClass}`}>{value}</p>
       <p className="text-[11px] text-text-secondary">{sub}</p>
     </div>
+  );
+}
+
+function TogglePill({
+  label,
+  checked,
+  onChange,
+}: {
+  label: string;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <label className="flex items-center gap-2 rounded border border-border bg-surface-2 px-2.5 py-1.5 cursor-pointer">
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+        className="accent-accent"
+      />
+      <span>{label}</span>
+    </label>
   );
 }

@@ -30,17 +30,17 @@ export default function App() {
         </div>
         <nav className="space-y-2 px-3 py-2">
           {APP_NAV_GROUPS.map((group) => (
-            <div key={group.label} className="flex items-start gap-2">
-              <p className="w-20 shrink-0 pt-1 text-[11px] font-semibold uppercase tracking-widest text-text-secondary">
+            <div key={group.label} className="flex flex-col gap-1.5 sm:flex-row sm:items-start sm:gap-2">
+              <p className="shrink-0 pt-1 text-[11px] font-semibold uppercase tracking-widest text-text-secondary sm:w-20">
                 {group.label}
               </p>
-              <div className="flex min-w-0 flex-1 gap-1 overflow-x-auto pb-0.5">
+              <div className="flex min-w-0 flex-1 flex-wrap gap-1 pb-0.5">
                 {group.pages.map((page) => (
                   <NavLink
                     key={page.path}
                     to={page.path}
                     className={({ isActive }) =>
-                      `shrink-0 rounded border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide transition-colors ${
+                      `rounded border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide transition-colors ${
                         isActive
                           ? "border-accent/50 bg-accent/15 text-accent"
                           : "border-border bg-surface-2 text-text-secondary hover:text-text-primary"
