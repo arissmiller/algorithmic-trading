@@ -1,8 +1,6 @@
 name: Deploy to Railway
 
 on:
-  push:
-    branches: ["main"]
   workflow_dispatch:
     inputs:
       git_ref:
@@ -21,33 +19,6 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  deploy-staging:
-    name: Deploy staging (${{ matrix.service }})
-    if: github.event_name == 'push'
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - service: frontend
-            path: frontend
-          - service: data-service
-            path: data-service
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-
-      - name: Install Railway CLI
-        run: npm install -g @railway/cli
-
-      - name: Deploy to Railway staging
-        run: railway up --service ${{ matrix.service }} --environment staging --path-as-root --detach ${{ matrix.path }}
-        env:
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
-
   validate-production-request:
     name: Validate production request
     if: github.event_name == 'workflow_dispatch'
