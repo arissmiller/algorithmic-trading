@@ -1,29 +1,65 @@
 # Data Service
 
-This folder is the backend service boundary for market data and bot execution.
+This folder is the backend service boundary for market data, portfolio state, and bot/watchlist execution.
 
-## Purpose
+If you are reading the code for the first time, start with `server.ts`. It wires together CORS/origin handling, rate limiting, `/api/bars`, `/api/bot/*`, startup jobs, and the long-lived state loaders.
 
-Expose a stable contract to the frontend while isolating provider details.
+## What This Service Owns
+
+This service exposes the backend contract used by the frontend while keeping provider-specific logic out of the UI.
+
+- Market bars for stock and crypto backtests
+- Read-only Alpaca account snapshots
+- Bot and watchlist control-plane routes
+- Live portfolio state and derived portfolio snapshots
+- Optional signal forwarding to `dispatch-service`
+- Optional persistence/caching for bars and SEC earnings data
 
 - Frontend contract:
-	- `/api/health`
-	- `/api/bars?symbol=...&range=...` (returns `bars` and optional `earningsEvents`)
-	- `/api/bars?symbol=...&timeframe=15Min&startDate=YYYY-MM-DD&endDate=YYYY-MM-DD` (returns `bars` and optional `earningsEvents`)
-	- `/api/alpaca/account` (read-only snapshot)
-	- `/api/bot/*` (protected bot + watchlist execution routes)
+  - `/api/health`
+  - `/api/bars?symbol=...&range=...` (returns `bars` and optional `earningsEvents`)
+  - `/api/bars?symbol=...&timeframe=15Min&startDate=YYYY-MM-DD&endDate=YYYY-MM-DD` (returns `bars` and optional `earningsEvents`)
+  - `/api/alpaca/account` (read-only snapshot)
+  - `/api/bot/*` (protected bot + watchlist execution routes)
 - Provider logic: Alpaca-only market data + normalization and error mapping
 
-## Runtime entrypoints
+## Start Here In The Code
 
-- Local dev proxy: `server.ts`
-- Serverless (Vercel): `api/health.ts`, `api/bars.ts`, `api/alpaca/account.ts`
+- `server.ts`: HTTP entrypoint, origin policy, rate limiting, startup loops
+- `routes/barsRoute.ts`: `/api/bars` and related market-data reads
+- `routes/botRoutes.ts`: `/api/bot/*` routes and control-plane behavior
+- `core.ts`: provider-facing market/account helpers and normalization
+- `config.ts`: environment parsing and feature flags
+- `livePortfolio.ts`: persisted portfolio configuration + snapshot generation
+- `watchlistExecution.ts`: watchlist scan loop and signal generation
+- `signalDispatch.ts`: optional HTTP bridge to `dispatch-service`
+- `barCache.ts`: optional Postgres-backed bar cache
+- `secEarningsStore.ts`: persistent SEC earnings storage and refresh loop
+
+## Runtime Entrypoints
+
+- Local dev + deployed service: `server.ts`
 - Bot execution engine: `botEngine.ts`
 - Watchlist signal engine: `watchlistExecution.ts`
 - Dispatch integration layer: `signalDispatch.ts`
 - Optional bars cache adapter: `barCache.ts` (PostgreSQL)
 
 All entrypoints use `core.ts` for market/account behavior consistency.
+
+## Request And Startup Flow
+
+- `server.ts` accepts browser traffic directly using the Node `http` module.
+- Requests first pass through origin checks and rate limiting.
+- `/api/bot/*` and `/api/community/watchlists` route into `routes/botRoutes.ts`.
+- Remaining allowed reads route into `routes/barsRoute.ts`.
+- On startup the service also:
+  - loads persisted bot state when `ENABLE_BOT_ENGINE=true`
+  - loads persisted watchlists and starts the watchlist execution loop
+  - loads API connection state
+  - loads live portfolio state
+  - starts the SEC earnings refresh loop
+  - optionally starts backend-managed paper crypto bots
+  - optionally starts the live signals monitor
 
 ## Bot and Watchlist Routes
 
@@ -51,6 +87,17 @@ Watchlist routes remain enabled:
 - `GET /api/bot/paper-runner`
 - `GET /api/bot/paper-runner/:id`
 - `GET /api/bot/strategy-profiles`
+
+## Stateful Files And Persistence
+
+By default, this service uses a mix of file-backed state and optional Postgres-backed caches.
+
+- `live-portfolio-state.json`: tracked default portfolio definition file committed in the repo
+- `live-portfolio-value-cache.json`: runtime-generated persistent live-portfolio valuation/fundamentals cache file
+- API connection state file: parsed from `API_CONNECTION_STATE_FILE`
+- Optional Postgres tables for cached market bars and SEC earnings data
+
+That means the easiest way to understand "where does this data live?" is usually to inspect `config.ts`, then the owning module.
 
 ## Bot Campaign Parameters
 
@@ -93,7 +140,7 @@ Current watchlist behavior:
 
 Live portfolio behavior:
 
-- Portfolio allocations/thresholds are file-backed at `data-service/live-portfolio-state.json` by default.
+- Portfolio allocations/thresholds are file-backed at the tracked `data-service/live-portfolio-state.json` file by default.
 - Supports multiple named portfolios using `defaultPortfolioKey` + `portfolios[]` in the state file.
 - Each portfolio can optionally define a `whitepaper` object (`title`, `url`, `aiGenerated`, optional `disclosure`) for UI linking and AI-origin transparency.
 - Each portfolio can optionally define `launchedAt` (any valid date string) to display a stable "Live since ..." day in the live portfolio header.
@@ -105,19 +152,111 @@ Live portfolio behavior:
 - Edit that file directly to control target percentages.
 - The service auto-reloads file edits on the next portfolio request.
 
-## Why this split helps
+## Why This Split Helps
 
 - Frontend on GitHub Pages stays static
 - Backend can evolve without touching frontend call sites
 - Includes optional PostgreSQL bar-cache support for faster repeated backtests
 
-## Railway hardening checklist
+## Environment Variables
+
+`config.ts` is the source of truth for most runtime flags. The list below calls out the ones that materially change architecture or behavior while reading the code.
+
+### Access, Routing, And Safety
+
+- `PORT`
+- `ALLOWED_ORIGINS`
+- `REQUIRE_ORIGIN_HEADER`
+- `ORIGIN_EXEMPT_PATHS` or `AUTH_EXEMPT_PATHS`
+- `FRONTEND_SHARED_SECRET_HEADER`
+- `RATE_LIMIT_WINDOW_MS`
+- `RATE_LIMIT_MAX`
+- `RATE_LIMIT_MAX_READ`
+- `RATE_LIMIT_MAX_BARS`
+- `RATE_LIMIT_MAX_BOT_READ`
+
+### Core Market Data
+
+- `APCA_API_KEY_ID`
+- `APCA_API_SECRET_KEY`
+- `ALPACA_FEED`
+- `ALPACA_DATA_BASE_URL`
+- `ALPACA_TRADING_BASE_URL`
+- `APCA_API_BASE_URL`
+- `ALPACA_REQUEST_TIMEOUT_MS`
+- `MARKET_DATA_MAX_CONCURRENT_REQUESTS`
+- `MARKET_DATA_MIN_INTERVAL_MS`
+
+### Bot, Watchlist, And Live Signal Features
+
+- `ENABLE_BOT_ENGINE`
+- `DEFAULT_OPERATOR_USER_ID`
+- `ENABLE_LIVE_SIGNALS_MONITOR`
+- `LIVE_SIGNAL_SYMBOLS`
+- `LIVE_SIGNAL_PROFILES`
+- `LIVE_SIGNAL_HISTORY_LIMIT`
+
+### Live Portfolio
+
+- `LIVE_PORTFOLIO_ALLOCATIONS`
+- `LIVE_PORTFOLIO_STATE_FILE`
+- `LIVE_PORTFOLIO_SNAPSHOT_TTL_MS`
+- `LIVE_PORTFOLIO_VALUE_CACHE_FILE`
+
+### Backend-Managed Paper Crypto Runner
+
+- `ENABLE_BACKEND_PAPER_CRYPTO_RUNNER`
+- `BACKEND_PAPER_CRYPTO_SYMBOLS`
+- `BACKEND_PAPER_CRYPTO_TIMEFRAME`
+- `BACKEND_PAPER_CRYPTO_ALLOCATION_USD`
+- `BACKEND_PAPER_CRYPTO_DIRECTION_MODE`
+- `BACKEND_PAPER_CRYPTO_TREND_LOOKBACK_DAYS`
+- `BACKEND_PAPER_CRYPTO_TREND_BAND_PCT`
+- `BACKEND_PAPER_CRYPTO_SELLOFF_START_THRESHOLD`
+- `BACKEND_PAPER_CRYPTO_SELLOFF_END_THRESHOLD`
+- `ALLOW_LIVE_CRYPTO_TRADING`
+
+### Earnings And Bar Cache Persistence
+
+- `SEC_EDGAR_USER_AGENT`
+- `SEC_EARNINGS_DATABASE_URL`
+- `SEC_EARNINGS_TABLE`
+- `SEC_EARNINGS_TTL_MS`
+- `SEC_EARNINGS_RETRY_TTL_MS`
+- `SEC_EARNINGS_SYNC_ENABLED`
+- `SEC_EARNINGS_SYNC_INTERVAL_MS`
+- `SEC_EARNINGS_SYNC_BATCH_SIZE`
+- `SEC_TICKER_MAP_TTL_MS`
+- `SEC_REQUEST_TIMEOUT_MS`
+- `SEC_REQUEST_SPACING_MS`
+- `SEC_TICKERS_URL`
+- `SEC_DATA_BASE_URL`
+- `ALPHA_VANTAGE_API_KEY`
+- `ALPHA_VANTAGE_EARNINGS_URL`
+- `EARNINGS_CACHE_TTL_MS`
+- `BACKTEST_CACHE_DATABASE_URL`
+- `BACKTEST_CACHE_TABLE`
+- `BAR_CACHE_TTL_1_DAY_MS`
+- `BAR_CACHE_TTL_1_HOUR_MS`
+- `BAR_CACHE_TTL_15_MIN_MS`
+- `BAR_CACHE_TTL_5_MIN_MS`
+- `BAR_CACHE_STALE_FALLBACK_MAX_AGE_MS`
+
+### Dispatch Integration
+
+- `SIGNAL_DISPATCH_URL`
+- `SIGNAL_DISPATCH_TIMEOUT_MS`
+- `SIGNAL_DISPATCH_AUTH_HEADER`
+- `SIGNAL_DISPATCH_AUTH_TOKEN`
+- `WATCHLIST_SIGNAL_HISTORY_LIMIT`
+
+## Railway Hardening Checklist
 
 Before exposing this service publicly, set these Railway environment variables:
 
 - `ALLOWED_ORIGINS`:
 	- Comma-separated frontend origins allowed by CORS.
-	- Example: `https://your-app.vercel.app,https://yourdomain.com`
+	- Example: `https://app.yourdomain.com,https://yourdomain.com`
 	- Matching is normalized (`https://site.com` and `https://site.com/` are treated the same).
 	- Supports optional wildcard subdomains like `https://*.yourdomain.com`.
 - `REQUIRE_ORIGIN_HEADER`:
@@ -154,7 +293,7 @@ Before exposing this service publicly, set these Railway environment variables:
 	- Cache TTL (ms) for computed `/api/bot/portfolio` snapshots.
 	- Default: `60000`
 - `LIVE_PORTFOLIO_VALUE_CACHE_FILE`:
-	- Optional path override for persistent live-portfolio value-rating/fundamentals cache.
+	- Optional path override for the runtime-generated persistent live-portfolio value-rating/fundamentals cache.
 	- Default: `<data-service>/live-portfolio-value-cache.json`
 - `ENABLE_BACKEND_PAPER_CRYPTO_RUNNER`:
 	- Enables backend-managed paper trading bot startup at server boot.
@@ -340,7 +479,26 @@ Notes:
 - `/api/alpaca/*` endpoints remain read-only by design.
 - `/api/bot/*` endpoints are operator control-plane routes and can place Alpaca orders for running bots.
 
-Example frontend request (server-side runtime):
+## Local Dev
+
+From the repo root:
+
+1. `npm install`
+2. `npm run dev:api`
+
+From inside `data-service/`:
+
+1. Ensure `.env` contains the credentials and flags you need for the code path you are reading
+2. `npm install`
+3. `npm run dev`
+
+Default local port: `http://127.0.0.1:3001`
+
+Tests:
+
+- `npm --prefix data-service test`
+
+## Example Frontend Request
 
 ```ts
 await fetch(`${process.env.DATA_SERVICE_URL}/api/bars?symbol=AAPL&range=2y`);
